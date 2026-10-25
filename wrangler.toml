@@ -1,0 +1,9 @@
+
+name = "my-website"
+main = "worker.js"
+compatibility_date = "2026-10-25"
+
+[assets]
+directory = "./public"
+binding = "ASSETS"
+not_found_handling = "none"
