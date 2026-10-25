@@ -5,7 +5,7 @@ export default {
     const pathname = url.pathname === "/" ? "/index.html" : url.pathname;
 
     if (pathname.includes("..")) {
-      return new Response("Bad Request", { status: 400 });
+      return new Response("Bad Request.", { status: 400 });
     }
 
     const assetRequest = new Request(
