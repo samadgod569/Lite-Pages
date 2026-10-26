@@ -141,7 +141,7 @@
   const compact = new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 });
   const num = n => n >= 100000 ? compact.format(n) : nf.format(n);
 
-  fetch("assets/panel-essentials.html").then(r => r.text()).then(html => {
+  fetch("../assets/panel-essentials.html").then(r => r.text()).then(html => {
     const box = $("panelEssentials");
     box.innerHTML = html;
     box.querySelectorAll("script").forEach(old => {
@@ -150,7 +150,7 @@
       old.replaceWith(s);
     });
   }).catch(e => console.error("Could not load panel-essentials.html", e));
-  fetch("assets/footer.html").then(r => r.ok ? r.text() : "").then(h => { $("footer").innerHTML = h; }).catch(() => {});
+  fetch("../assets/footer.html").then(r => r.ok ? r.text() : "").then(h => { $("footer").innerHTML = h; }).catch(() => {});
 
   function creds() {
     try { return { u: localStorage.getItem("lp-username"), p: localStorage.getItem("lp-password") }; }
