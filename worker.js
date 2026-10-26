@@ -4,7 +4,7 @@ export default {
 
     // Proxy health endpoint to Gen2
     if (url.pathname === "/health") {
-      const target = "https://YOUR-GEN2-DOMAIN.com/health";
+      const target = "https://gen2-litepages.wisp.uno/health";
 
       try {
         return await fetch(target, {
