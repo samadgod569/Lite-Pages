@@ -7,3 +7,8 @@ compatibility_date = "2026-10-25"
 directory = "./public"
 binding = "ASSETS"
 not_found_handling = "none"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "files"
+database_id = "8c88d133-3735-442b-8572-112cf6fb3ead"
