@@ -150,7 +150,7 @@
       old.replaceWith(s);
     });
   }).catch(e => console.error("Could not load panel-essentials.html", e));
-  fetch("../assets/footer.html").then(r => r.ok ? r.text() : "").then(h => { $("footer").innerHTML = h; }).catch(() => {});
+  fetch("../assets/footer-panel.html").then(r => r.ok ? r.text() : "").then(h => { $("footer").innerHTML = h; }).catch(() => {});
 
   function creds() {
     try { return { u: localStorage.getItem("lp-username"), p: localStorage.getItem("lp-password") }; }
