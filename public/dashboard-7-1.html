@@ -1,0 +1,596 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dashboard – Fast Site</title>
+<meta name="description" content="Manage your Fast Site apps.">
+<link rel="icon" type="image/svg+xml" href="images/logo.svg">
+<script>
+  (function(){var u,p;try{u=localStorage.getItem("lp-username");p=localStorage.getItem("lp-password")}catch(e){}
+  if(!u||!p)location.replace("signup.html")})();
+</script>
+<script>
+  (function(){var t;try{t=localStorage.getItem("lp-theme")}catch(e){}
+  if(!t)t=matchMedia("(prefers-color-scheme:dark)").matches?"dark":"light";
+  document.documentElement.dataset.theme=t})();
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{color-scheme:light;--bg:#fff;--surface:#fff;--soft:#f4f4f5;--line:#e4e4e7;--text:#09090b;--muted:#52525b;--accent:#0e7490;--accent-ink:#fff;--glow:#dff3f7;--danger:#b91c1c;--ok:#16a34a}
+  [data-theme=dark]{color-scheme:dark;--bg:#000;--surface:#0a0a0a;--soft:#111113;--line:#262629;--text:#fafafa;--muted:#a1a1aa;--accent:#5be0f0;--accent-ink:#001418;--glow:#0b2c33;--danger:#f87171;--ok:#4ade80}
+  *{box-sizing:border-box}
+  body{margin:0;min-height:100vh;display:flex;flex-direction:column;background:var(--bg);color:var(--text);font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif;line-height:1.6;transition:background .2s,color .2s}
+  main{flex:1;padding:48px 20px 72px;background:radial-gradient(55% 40% at 50% 0%,var(--glow),transparent 75%)}
+  svg{fill:currentColor}
+  [hidden]{display:none!important}
+  a:focus-visible,button:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+
+  .wrap{max-width:1120px;margin:0 auto}
+  .top{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:28px}
+  h1{font-size:32px;letter-spacing:-.03em;line-height:1.15;margin:0 0 6px}
+  .sub{margin:0;color:var(--muted);font-size:15px}
+
+  .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:11px 20px;border-radius:999px;font:600 15px Inter,sans-serif;text-decoration:none;cursor:pointer;border:1px solid var(--text);background:transparent;color:var(--text);transition:background .15s,filter .15s}
+  .btn:hover{background:var(--soft)}
+  .btn.main{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+  .btn.main:hover{filter:brightness(1.1);background:var(--accent)}
+  .btn:disabled{opacity:.6;cursor:default}
+  .btn svg{width:18px;height:18px}
+
+  /* app grid */
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:22px}
+  .app{border:1px solid var(--line);border-radius:18px;overflow:hidden;background:var(--surface);transition:border-color .15s,transform .15s,box-shadow .15s}
+  .app:hover{border-color:var(--accent);transform:translateY(-3px);box-shadow:0 14px 34px -18px rgba(0,0,0,.35)}
+  .thumb{position:relative;display:block;aspect-ratio:16/10;background:#fff;overflow:hidden;border-bottom:1px solid var(--line)}
+  .thumb iframe{position:absolute;top:0;left:0;width:1280px;height:800px;border:0;background:#fff;transform:scale(var(--s,.25));transform-origin:0 0;pointer-events:none;opacity:0;transition:opacity .35s}
+  .thumb iframe.on{opacity:1}
+  .thumb.checking{background:linear-gradient(100deg,var(--soft) 30%,var(--line) 50%,var(--soft) 70%);background-size:300% 100%;animation:shine 1.4s linear infinite}
+  .thumb.down{background:linear-gradient(135deg,hsl(var(--h,200) 48% 20%),hsl(calc(var(--h,200) + 45) 55% 34%))}
+  .thumb.down::before{content:"";position:absolute;inset:0;background:repeating-radial-gradient(circle at 50% 55%,rgba(255,255,255,.09) 0 1.5px,transparent 1.5px 34px)}
+  .thumb.down::after{content:"";position:absolute;inset:0;background:linear-gradient(115deg,transparent 38%,rgba(255,255,255,.12) 50%,transparent 62%)}
+  .mono{display:none;position:absolute;z-index:2;left:50%;top:50%;width:68px;height:68px;transform:translate(-50%,-50%);border-radius:22px;place-items:center;background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.38);backdrop-filter:blur(6px);box-shadow:0 10px 30px -10px rgba(0,0,0,.5);color:#fff;font:700 30px Inter,sans-serif;text-transform:uppercase}
+  .down .mono{display:grid}
+  .badge{position:absolute;top:10px;left:10px;z-index:3;display:flex;align-items:center;gap:6px;padding:3px 10px;border-radius:999px;background:var(--surface);border:1px solid var(--line);color:var(--text);font-size:12px;font-weight:600}
+  .badge i{width:7px;height:7px;border-radius:50%;background:#a1a1aa}
+  .live .badge i{background:var(--ok)}
+  .checking .badge i{animation:pulse 1s ease-in-out infinite}
+  @keyframes pulse{50%{opacity:.25}}
+  .meta{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 16px}
+  .info{min-width:0}
+  .info h3{margin:0;font-size:16px;letter-spacing:-.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .info p{margin:0;font-size:13px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .meta small{color:var(--muted);font-size:12px;white-space:nowrap}
+  .manage{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:0 16px 16px}
+  .manage .btn{flex:1;padding:9px 16px;font-size:14px}
+  .manage .btn svg{width:16px;height:16px}
+
+  /* loading + empty + message states */
+  .sk{border:1px solid var(--line);border-radius:18px;overflow:hidden;background:var(--surface)}
+  .sk div:first-child{aspect-ratio:16/10}
+  .sk div:last-child{height:62px}
+  .sk div{background:linear-gradient(100deg,var(--soft) 30%,var(--line) 50%,var(--soft) 70%);background-size:300% 100%;animation:shine 1.4s linear infinite}
+  @keyframes shine{to{background-position:-300% 0}}
+  .empty{border:1px dashed var(--line);border-radius:22px;background:var(--soft);padding:64px 24px;text-align:center}
+  .empty .hero{display:block;width:min(300px,82%);height:auto;margin:0 auto 14px}
+  .empty h2{margin:0 0 6px;font-size:22px;letter-spacing:-.02em}
+  .empty p{margin:0 0 22px;color:var(--muted)}
+  .err{color:var(--danger)}
+
+  /* modals */
+  dialog{border:1px solid var(--line);border-radius:24px;background:var(--surface);color:var(--text);padding:0;width:min(980px,calc(100% - 28px));max-height:calc(100% - 28px);overflow:auto}
+  dialog.sm{width:min(440px,calc(100% - 28px))}
+  dialog::backdrop{background:rgba(0,0,0,.55);backdrop-filter:blur(4px)}
+  dialog[open]{animation:pop .18s ease-out}
+  @keyframes pop{from{opacity:0;transform:translateY(10px) scale(.98)}}
+  .dlg{padding:30px}
+  .dlg h2{margin:0 0 6px;font-size:24px;letter-spacing:-.02em}
+  .dlg>p{margin:0 0 22px;color:var(--muted)}
+  .x{position:absolute;top:16px;right:16px;width:34px;height:34px;border-radius:50%;border:1px solid var(--line);background:var(--surface);color:var(--text);cursor:pointer;display:grid;place-items:center}
+  .x:hover{background:var(--soft)}
+  .x svg{width:16px;height:16px}
+  .notice{margin:0 0 18px;padding:10px 14px;border-radius:12px;background:var(--soft);border:1px solid var(--line);font-size:14px;color:var(--danger)}
+  .opts{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+  .opt{display:flex;flex-direction:column;padding:0;overflow:hidden;text-align:left;border:1.5px solid var(--line);border-radius:16px;background:var(--surface);color:var(--text);font:inherit;text-decoration:none;cursor:pointer;transition:border-color .15s,transform .15s}
+  .opt:hover{border-color:var(--accent);transform:translateY(-2px)}
+  .opt[aria-disabled=true]{opacity:.55}
+  .opt[aria-disabled=true]:hover{border-color:var(--line);transform:none}
+  .banner{position:relative;display:block;width:100%;aspect-ratio:12/5;overflow:hidden}
+  .banner .art{position:absolute;inset:0;width:100%;height:100%}
+  .bc{position:absolute;left:14px;right:14px;bottom:12px;display:flex;align-items:center;gap:10px}
+  .bi{width:40px;height:40px;border-radius:11px;background:rgba(255,255,255,.93);display:grid;place-items:center;box-shadow:0 4px 14px rgba(0,0,0,.3);flex-shrink:0}
+  .bi svg{width:22px;height:22px}
+  .bn{font-weight:700;font-size:1.15rem;letter-spacing:-.02em;color:#fff;text-shadow:0 2px 12px rgba(0,0,0,.45)}
+  .obody{display:flex;flex-direction:column;gap:4px;padding:14px 16px 18px}
+  .kick{font-size:.7rem;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
+  .obody b{font-size:1rem;letter-spacing:-.01em}
+  .obody small{font-size:.84rem;line-height:1.45;color:var(--muted)}
+  label{display:block;font-size:14px;font-weight:600;margin-bottom:8px}
+  input[type=text]{width:100%;padding:12px 16px;border-radius:12px;border:1px solid var(--line);background:var(--bg);color:var(--text);font:500 16px Inter,sans-serif}
+  input[type=text]:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--glow)}
+  .hint{margin:8px 0 0;font-size:13px;color:var(--muted)}
+  .msg{display:none;align-items:flex-start;gap:10px;margin:14px 0 0;padding:10px 14px;border-radius:12px;border:1px solid var(--danger);background:color-mix(in srgb,var(--danger) 10%,transparent);color:var(--danger);font-size:14px;font-weight:500;line-height:1.45}
+  .msg.on{display:flex;animation:pop .18s ease-out}
+  .msg svg{width:18px;height:18px;flex-shrink:0;margin-top:2px}
+  input[type=text].bad{border-color:var(--danger);animation:shake .3s}
+  @keyframes shake{25%{transform:translateX(-5px)}75%{transform:translateX(5px)}}
+  .acts{display:flex;gap:10px;justify-content:flex-end;margin-top:18px}
+  .toast{position:fixed;left:50%;bottom:28px;transform:translate(-50%,20px);opacity:0;pointer-events:none;background:var(--text);color:var(--bg);font-weight:600;font-size:14px;padding:11px 20px;border-radius:999px;transition:.25s;z-index:50}
+  .toast.on{opacity:1;transform:translate(-50%,0)}
+
+ /* plans */
+  dialog.plans{width:min(1040px,calc(100% - 28px))}
+  .bal{display:inline-block;margin:0 0 18px;padding:5px 14px;border-radius:999px;background:var(--soft);border:1px solid var(--line);font-size:13px;font-weight:600}
+  .plist{display:grid;grid-template-columns:repeat(5,1fr);gap:14px}
+  .plan{position:relative;display:flex;flex-direction:column;gap:6px;padding:18px 16px;text-align:left;border:1.5px solid var(--line);border-radius:16px;background:var(--surface);color:var(--text);font:inherit;cursor:pointer;transition:border-color .15s,transform .15s,box-shadow .15s}
+  .plan:hover{border-color:var(--accent);transform:translateY(-2px)}
+  .plan[aria-checked=true]{border-color:var(--accent);box-shadow:0 0 0 3px var(--glow)}
+  .plan[aria-disabled=true]{opacity:.5;cursor:not-allowed}
+  .plan[aria-disabled=true]:hover{border-color:var(--line);transform:none}
+  .plan .pn{font-weight:700;font-size:1.05rem;letter-spacing:-.01em}
+  .plan .pp{font-size:1.5rem;font-weight:700;letter-spacing:-.03em}
+  .plan .pp small{font-size:.8rem;font-weight:500;color:var(--muted)}
+  .plan ul{list-style:none;margin:6px 0 0;padding:0;display:flex;flex-direction:column;gap:5px;font-size:.84rem;color:var(--muted)}
+  .plan li{display:flex;gap:7px;align-items:flex-start}
+  .plan li::before{content:"\2713";color:var(--ok);font-weight:700}
+  .plan li.no::before{content:"\2715";color:var(--muted)}
+  .tag{position:absolute;top:-10px;right:12px;padding:2px 10px;border-radius:999px;background:var(--accent);color:var(--accent-ink);font-size:11px;font-weight:700}
+  .pill{display:inline-block;margin-top:2px;padding:1px 9px;border-radius:999px;background:var(--soft);border:1px solid var(--line);font-size:11px;font-weight:600;color:var(--muted)}
+  @media(max-width:900px){.plist{grid-template-columns:repeat(2,1fr)}}
+  @media(max-width:560px){.plist{grid-template-columns:1fr}}
+  @media(max-width:700px){.opts{grid-template-columns:1fr}.dlg{padding:24px 20px}h1{font-size:27px}}
+  @media(prefers-reduced-motion:reduce){*,::after{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+
+<div id="navbar"></div>
+
+<main>
+  <div class="wrap">
+    <header class="top">
+      <div>
+        <h1>Your apps</h1>
+        <p class="sub" id="sub">&nbsp;</p>
+      </div>
+      <button class="btn main" id="newBtn" hidden>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6z"/></svg>
+        Create a new app
+      </button>
+    </header>
+
+    <div id="grid" class="grid" aria-live="polite"></div>
+  </div>
+</main>
+
+<div id="footer"></div>
+
+<!-- Modal 1: choose how to start -->
+<dialog id="createDlg" aria-labelledby="createTitle">
+  <div class="dlg">
+    <button class="x" data-close aria-label="Close"><svg viewBox="0 0 24 24"><path d="M19 6.4 17.6 5 12 10.6 6.4 5 5 6.4l5.6 5.6L5 17.6 6.4 19l5.6-5.6 5.6 5.6 1.4-1.4-5.6-5.6z"/></svg></button>
+    <h2 id="createTitle">Create a new app</h2>
+    <p>Pick how you want to get your site online.</p>
+    <div class="notice" id="limitNotice" hidden></div>
+    <div class="opts">
+      <a class="opt" href="upload-existing.html">
+        <span class="banner" style="background:linear-gradient(135deg,#0f3a55 0%,#1f7fb5 45%,#0b2a40 100%)"><svg class="art" viewBox="0 0 1200 500" preserveAspectRatio="xMidYMid slice" aria-hidden="true"><circle cx="900" cy="250" r="215" fill="#fff" fill-opacity="0.07"/><circle cx="900" cy="250" r="150" fill="#fff" fill-opacity="0.07"/><g transform="rotate(-9 880 250)"><rect x="790" y="100" width="200" height="270" rx="22" fill="#fff" fill-opacity="0.12" stroke="#fff" stroke-opacity=".3" stroke-width="4"/></g><rect x="830" y="120" width="210" height="270" rx="22" fill="#fff" fill-opacity="0.18" stroke="#fff" stroke-opacity=".4" stroke-width="4"/><path d="M935 335V225M890 267l45-45 45 45" fill="none" stroke="#fff" stroke-opacity=".75" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/><rect x="1060" y="60" width="110" height="44" rx="16" fill="#fff" fill-opacity="0.2"/><rect x="560" y="380" width="150" height="50" rx="18" fill="#fff" fill-opacity="0.16"/><rect x="600" y="80" width="90" height="34" rx="12" fill="#fff" fill-opacity="0.12"/></svg><span class="bc"><span class="bi"><svg viewBox="0 0 24 24" style="fill:#0f3a55" aria-hidden="true"><path d="M9 16h6v-6h4l-7-7-7 7h4zm-4 2h14v2H5z"/></svg></span><span class="bn">Upload</span></span></span>
+        <span class="obody"><span class="kick">Import</span><b>Import an existing project</b><small>Upload your HTML, CSS, JavaScript and images.</small></span>
+      </a>
+      <a class="opt" href="github-existing.html">
+        <span class="banner" style="background:linear-gradient(135deg,#1c1f26 0%,#3b4252 45%,#14161b 100%)"><svg class="art" viewBox="0 0 1200 500" preserveAspectRatio="xMidYMid slice" aria-hidden="true"><path d="M760 40V460" fill="none" stroke="#fff" stroke-opacity=".3" stroke-width="7"/><path d="M760 140C760 215 905 190 905 265V285C905 360 760 335 760 410" fill="none" stroke="#fff" stroke-opacity=".4" stroke-width="7"/><path d="M905 265C905 310 1050 285 1050 340" fill="none" stroke="#fff" stroke-opacity=".3" stroke-width="7"/><circle cx="760" cy="80" r="20" fill="#fff" fill-opacity="0.6"/><circle cx="760" cy="80" r="32" fill="none" stroke="#fff" stroke-opacity=".18" stroke-width="4"/><circle cx="760" cy="230" r="20" fill="#fff" fill-opacity="0.6"/><circle cx="760" cy="230" r="32" fill="none" stroke="#fff" stroke-opacity=".18" stroke-width="4"/><circle cx="760" cy="440" r="20" fill="#fff" fill-opacity="0.6"/><circle cx="760" cy="440" r="32" fill="none" stroke="#fff" stroke-opacity=".18" stroke-width="4"/><circle cx="905" cy="265" r="20" fill="#fff" fill-opacity="0.6"/><circle cx="905" cy="265" r="32" fill="none" stroke="#fff" stroke-opacity=".18" stroke-width="4"/><circle cx="1050" cy="345" r="20" fill="#fff" fill-opacity="0.6"/><circle cx="1050" cy="345" r="32" fill="none" stroke="#fff" stroke-opacity=".18" stroke-width="4"/><rect x="808" y="63" width="190" height="34" rx="17" fill="#fff" fill-opacity="0.14"/><rect x="808" y="213" width="130" height="34" rx="17" fill="#fff" fill-opacity="0.14"/><rect x="955" y="248" width="150" height="34" rx="17" fill="#fff" fill-opacity="0.14"/><rect x="1086" y="328" width="90" height="34" rx="17" fill="#fff" fill-opacity="0.14"/><rect x="560" y="120" width="120" height="30" rx="15" fill="#fff" fill-opacity="0.1"/></svg><span class="bc"><span class="bi"><svg viewBox="0 0 24 24" style="fill:#1c1f26" aria-hidden="true"><path d="M12 .5C5.65.5.5 5.65.5 12c0 5.08 3.29 9.39 7.86 10.91.58.1.79-.25.79-.56v-2c-3.2.7-3.87-1.37-3.87-1.37-.52-1.33-1.28-1.69-1.28-1.69-1.04-.71.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.77 2.69 1.26 3.35.96.1-.75.4-1.26.73-1.55-2.55-.29-5.24-1.28-5.24-5.68 0-1.25.45-2.28 1.19-3.08-.12-.29-.52-1.46.11-3.04 0 0 .97-.31 3.17 1.18a11 11 0 0 1 5.76 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.58.23 2.75.11 3.04.74.8 1.19 1.83 1.19 3.08 0 4.41-2.69 5.38-5.25 5.67.41.36.78 1.06.78 2.14v3.17c0 .31.21.67.8.56A11.51 11.51 0 0 0 23.5 12C23.5 5.65 18.35.5 12 .5z"/></svg></span><span class="bn">GitHub</span></span></span>
+        <span class="obody"><span class="kick">Import</span><b>Import from GitHub</b><small>Connect a repository and deploy it as an app.</small></span>
+      </a>
+      <button class="opt" type="button" id="scratchBtn">
+        <span class="banner" style="background:linear-gradient(135deg,#12303a 0%,#1f6f7a 45%,#0c2027 100%)"><svg class="art" viewBox="0 0 1200 500" preserveAspectRatio="xMidYMid slice" aria-hidden="true"><rect x="780" y="80" width="320" height="340" rx="28" fill="#fff" fill-opacity="0.08" stroke="#fff" stroke-opacity=".4" stroke-width="5" stroke-dasharray="16 14"/><path d="M940 180V320M870 250h140" fill="none" stroke="#fff" stroke-opacity=".7" stroke-width="18" stroke-linecap="round"/><path d="M1135 66l8 20 20 8-20 8-8 20-8-20-20-8 20-8z" fill="#fff" fill-opacity="0.6"/><path d="M690 385l6 15 15 6-15 6-6 15-6-15-15-6 15-6z" fill="#fff" fill-opacity="0.4"/><circle cx="640" cy="120" r="10" fill="#fff" fill-opacity="0.3"/><circle cx="1160" cy="400" r="8" fill="#fff" fill-opacity="0.3"/></svg><span class="bc"><span class="bi"><svg viewBox="0 0 24 24" style="fill:#12303a" aria-hidden="true"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9zm-1 7V3.5L18.5 9zm1 5h2v2h-2v2h-2v-2H9v-2h2v-2h2z"/></svg></span><span class="bn">Scratch</span></span></span>
+        <span class="obody"><span class="kick">Start</span><b>Start from scratch</b><small>Create an empty app and build it your way.</small></span>
+      </button>
+    </div>
+  </div>
+</dialog>
+
+<!-- Modal 2: app name -->
+<dialog id="nameDlg" class="sm" aria-labelledby="nameTitle">
+  <form class="dlg" id="nameForm" novalidate>
+    <button class="x" type="button" data-close aria-label="Close"><svg viewBox="0 0 24 24"><path d="M19 6.4 17.6 5 12 10.6 6.4 5 5 6.4l5.6 5.6L5 17.6 6.4 19l5.6-5.6 5.6 5.6 1.4-1.4-5.6-5.6z"/></svg></button>
+    <h2 id="nameTitle">Name your app</h2>
+    <p>Choose a unique name. You can't change it later.</p>
+    <label for="appName">App name</label>
+    <input type="text" id="appName" maxlength="32" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="my-awesome-app">
+    <p class="hint">3–32 characters: lowercase letters, numbers, - and _</p>
+    <div class="msg" id="nameMsg" role="alert"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm1 15h-2v-2h2zm0-4h-2V7h2z"/></svg><span id="nameMsgText"></span></div>
+    <div class="acts">
+      <button class="btn" type="button" data-close>Cancel</button>
+      <button class="btn main" type="submit" id="createBtn">Continue</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- Modal 3: choose a plan -->
+<dialog id="planDlg" class="plans" aria-labelledby="planTitle">
+  <div class="dlg">
+    <button class="x" type="button" data-close aria-label="Close"><svg viewBox="0 0 24 24"><path d="M19 6.4 17.6 5 12 10.6 6.4 5 5 6.4l5.6 5.6L5 17.6 6.4 19l5.6-5.6 5.6 5.6 1.4-1.4-5.6-5.6z"/></svg></button>
+    <h2 id="planTitle">Choose a plan</h2>
+    <p>Pick a plan for <b id="planFor"></b>. Backups are only available on paid plans.</p>
+    <span class="bal" id="bal">Credits: …</span>
+    <div class="plist" id="plist" role="radiogroup" aria-label="Plans"></div>
+    <div class="msg" id="planMsg" role="alert"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm1 15h-2v-2h2zm0-4h-2V7h2z"/></svg><span id="planMsgText"></span></div>
+    <div class="acts">
+      <button class="btn" type="button" id="planBack">Back</button>
+      <button class="btn main" type="button" id="planCreate">Create app</button>
+    </div>
+  </div>
+</dialog>
+
+<div class="toast" id="toast" role="status"></div>
+
+<script>
+  const API_BASE = "https://gen1-litepages.wisp.uno/api";
+  // Where an app is served. Change this if your sites live on a different address.
+  const siteUrl = app => "https://" + app.name.toLowerCase() + ".fastsite.host";
+  const NAME_RE = /^[a-z0-9][a-z0-9_-]{2,31}$/;
+
+  const $ = id => document.getElementById(id);
+  const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+  const hueOf = name => { let h = 0; for (const c of name) h = (h * 31 + c.charCodeAt(0)) % 360; return h; };
+
+  const EMPTY_ART = '<svg class="hero" viewBox="0 0 320 240" role="img" aria-label="A friendly robot next to an empty window">' +
+    '<ellipse cx="160" cy="214" rx="132" ry="12" style="fill:var(--line)" opacity=".7"/>' +
+    '<rect x="18" y="56" width="146" height="108" rx="12" style="fill:var(--surface);stroke:var(--line)" stroke-width="3"/>' +
+    '<path d="M18 82h146" style="stroke:var(--line)" stroke-width="3" fill="none"/>' +
+    '<circle cx="33" cy="69" r="4" style="fill:var(--line)"/><circle cx="46" cy="69" r="4" style="fill:var(--line)"/><circle cx="59" cy="69" r="4" style="fill:var(--line)"/>' +
+    '<rect x="36" y="98" width="110" height="52" rx="8" fill="none" style="stroke:var(--line)" stroke-width="3" stroke-dasharray="7 7"/>' +
+    '<path d="M91 112v24M79 124h24" fill="none" style="stroke:var(--accent)" stroke-width="5" stroke-linecap="round"/>' +
+    '<path d="M286 62l4 10 10 4-10 4-4 10-4-10-10-4 10-4z" style="fill:var(--accent)" opacity=".8"/>' +
+    '<path d="M104 28l3 7 7 3-7 3-3 7-3-7-7-3 7-3z" style="fill:var(--accent)" opacity=".55"/>' +
+    '<circle cx="300" cy="140" r="4" style="fill:var(--accent)" opacity=".5"/>' +
+    '<path d="M236 90V72" fill="none" style="stroke:var(--text)" stroke-width="4" stroke-linecap="round"/>' +
+    '<circle cx="236" cy="66" r="7" style="fill:var(--accent)"/>' +
+    '<rect x="210" y="190" width="12" height="16" rx="5" style="fill:var(--text)"/><rect x="250" y="190" width="12" height="16" rx="5" style="fill:var(--text)"/>' +
+    '<rect x="208" y="142" width="56" height="52" rx="16" style="fill:var(--accent)"/><circle cx="236" cy="168" r="8" fill="#fff" opacity=".4"/>' +
+    '<path d="M208 156q-22 2-20-20" fill="none" style="stroke:var(--accent)" stroke-width="11" stroke-linecap="round"/><circle cx="188" cy="132" r="8" style="fill:var(--accent)"/>' +
+    '<path d="M264 156q16 6 14 22" fill="none" style="stroke:var(--accent)" stroke-width="11" stroke-linecap="round"/><circle cx="278" cy="180" r="8" style="fill:var(--accent)"/>' +
+    '<rect x="204" y="88" width="64" height="54" rx="18" style="fill:var(--accent)"/><rect x="212" y="97" width="48" height="34" rx="12" fill="#09090b"/>' +
+    '<circle cx="226" cy="112" r="5" fill="#5be0f0"/><circle cx="246" cy="112" r="5" fill="#5be0f0"/>' +
+    '<path d="M227 122q9 7 18 0" fill="none" stroke="#5be0f0" stroke-width="3.5" stroke-linecap="round"/>' +
+    '<circle cx="178" cy="100" r="16" style="fill:var(--surface);stroke:var(--accent)" stroke-width="3"/>' +
+    '<path d="M178 92v16M170 100h16" fill="none" style="stroke:var(--accent)" stroke-width="3.5" stroke-linecap="round"/></svg>';
+
+  let apps = [], max = null, credits = 0, freeUsed = 0, maxFree = 1;
+  let plans = [
+    { name: "Basic", price: 150, backups: 5 }, { name: "Standard", price: 200, backups: 7 },
+    { name: "Pro", price: 250, backups: 9 }, { name: "Enterprise", price: 300, backups: 11 }
+  ];
+  let pendingName = "", chosen = "Free";
+
+  async function load(id, url) {
+    const el = $(id);
+    try {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(res.status);
+      el.innerHTML = await res.text();
+    } catch (e) { console.error("Could not load " + url, e); }
+  }
+  load("navbar", "assets/navbar.html");
+  load("footer", "assets/footer.html");
+
+  document.addEventListener("click", e => {
+    if (!e.target.closest("[data-theme-toggle]")) return;
+    const root = document.documentElement;
+    const next = root.dataset.theme === "dark" ? "light" : "dark";
+    root.dataset.theme = next;
+    try { localStorage.setItem("lp-theme", next); } catch (err) {}
+  });
+
+  function creds() {
+    try { return { u: localStorage.getItem("lp-username"), p: localStorage.getItem("lp-password") }; }
+    catch (e) { return { u: null, p: null }; }
+  }
+
+  async function api(path, body) {
+    const res = await fetch(API_BASE + path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    });
+    let data = {};
+    try { data = await res.json(); } catch (e) {}
+    if (!data.error && !res.ok) data.error = "Server error (HTTP " + res.status + ")";
+    return { ok: res.ok && data.success === true, status: res.status, data };
+  }
+
+  /* ---------- thumbnails ---------- */
+  const ro = new ResizeObserver(entries => entries.forEach(en =>
+    en.target.style.setProperty("--s", en.contentRect.width / 1280)));
+
+  async function isRunning(url) {
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), 7000);
+    try { await fetch(url, { mode: "no-cors", cache: "no-store", signal: ctl.signal }); return true; }
+    catch (e) { return false; }
+    finally { clearTimeout(timer); }
+  }
+
+  function appCard(a) {
+    const url = siteUrl(a);
+    const date = new Date(a.createdAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+    const art = document.createElement("article");
+    art.className = "app";
+    art.innerHTML =
+      '<a class="thumb checking" href="' + esc(url) + '" target="_blank" rel="noopener" aria-label="Open ' + esc(a.name) + '">' +
+        '<span class="badge"><i></i><b>Checking</b></span>' +
+        '<span class="mono">' + esc(a.name.charAt(0)) + '</span>' +
+        '<iframe title="" tabindex="-1" aria-hidden="true" sandbox="allow-scripts" referrerpolicy="no-referrer"></iframe>' +
+      '</a>' +
+      '<div class="meta"><div class="info"><h3>' + esc(a.name) + '</h3><p>' + esc(url.replace("https://", "")) + '</p></div>' +
+      '<small>' + esc(date) + '</small></div>' +
+      '<div class="manage"><a class="btn" href="panel/overview?id=' + encodeURIComponent(a.id) + '">' +
+      '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.14 12.94c.04-.31.06-.63.06-.94s-.02-.63-.06-.94l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.61-.22l-2.39.96a7 7 0 0 0-1.62-.94l-.36-2.54a.49.49 0 0 0-.48-.41h-3.84a.49.49 0 0 0-.48.41l-.36 2.54c-.59.24-1.13.56-1.62.94l-2.39-.96a.49.49 0 0 0-.61.22L2.7 8.84a.49.49 0 0 0 .12.64l2.03 1.58c-.04.31-.07.63-.07.94s.03.63.07.94l-2.03 1.58a.5.5 0 0 0-.12.64l1.92 3.32c.12.22.37.29.61.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.26.41.48.41h3.84c.24 0 .44-.17.48-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.49 0 .61-.22l1.92-3.32a.5.5 0 0 0-.12-.64zM12 15.6A3.6 3.6 0 1 1 12 8.4a3.6 3.6 0 0 1 0 7.2z"/></svg>' +
+      'Manage</a></div>';
+
+    const thumb = art.querySelector(".thumb");
+    const badge = thumb.querySelector("b");
+    const frame = thumb.querySelector("iframe");
+    thumb.style.setProperty("--h", hueOf(a.name));
+    ro.observe(thumb);
+
+    isRunning(url).then(up => {
+      thumb.classList.remove("checking");
+      if (!up) {
+        badge.textContent = "Offline";
+        thumb.classList.add("down");
+        return;
+      }
+      thumb.classList.add("live");
+      badge.textContent = "Live";
+      frame.addEventListener("load", () => frame.classList.add("on"), { once: true });
+      frame.src = url;
+    });
+    return art;
+  }
+
+  /* ---------- page states ---------- */
+  function message(title, text, btnText, href) {
+    $("grid").className = "";
+    $("grid").innerHTML =
+      '<div class="empty"><h2>' + esc(title) + '</h2><p>' + esc(text) + '</p>' +
+      (btnText ? '<a class="btn main" href="' + esc(href) + '">' + esc(btnText) + '</a>' : "") + '</div>';
+  }
+
+  function skeleton() {
+    $("grid").className = "grid";
+    $("grid").innerHTML = '<div class="sk"><div></div><div></div></div>'.repeat(3);
+  }
+
+  function render() {
+    $("sub").textContent = max ? apps.length + " of " + max + " apps used" : apps.length + (apps.length === 1 ? " app" : " apps");
+    $("newBtn").hidden = false;
+    const grid = $("grid");
+    if (!apps.length) {
+      grid.className = "";
+      grid.innerHTML =
+        '<div class="empty">' + EMPTY_ART +
+        '<h2>No apps yet</h2><p>Create your first app and get it online in seconds.</p>' +
+        '<button class="btn main" type="button" data-new>Create a new app</button></div>';
+      return;
+    }
+    grid.className = "grid";
+    grid.replaceChildren(...apps.map(appCard));
+  }
+
+  async function loadApps() {
+    const { u, p } = creds();
+    if (!u || !p) { location.replace("signup.html"); return; }
+    skeleton();
+    try {
+      const r = await api("/apps/list", { username: u, password: p });
+      if (r.status === 401) {
+        $("sub").textContent = "Your session is no longer valid.";
+        return message("Please sign up again", "We couldn't verify your account on this device.", "Sign up", "signup.html");
+      }
+      if (!r.ok) throw new Error(r.data.error || "Request failed");
+      apps = r.data.apps;
+      max = r.data.max || null;
+      if (typeof r.data.credits === "number") credits = r.data.credits;
+      if (typeof r.data.freeUsed === "number") freeUsed = r.data.freeUsed;
+      else freeUsed = apps.filter(a => (a.plan || "Free") === "Free").length;
+      if (r.data.maxFree) maxFree = r.data.maxFree;
+      if (Array.isArray(r.data.plans) && r.data.plans.length) plans = r.data.plans;
+      render();
+    } catch (err) {
+      console.error(err);
+      $("sub").textContent = "";
+      message("Couldn't load your apps", "Check your connection and try again.", "Try again", "dashboard.html");
+    }
+  }
+
+  /* ---------- modals ---------- */
+  const createDlg = $("createDlg"), nameDlg = $("nameDlg");
+
+  function atLimit() { return !!max && apps.length >= max; }
+
+  function showLimit() {
+    const n = $("limitNotice");
+    n.textContent = "You've reached the limit of " + max + " apps.";
+    n.hidden = false;
+  }
+
+  function openCreate() {
+    $("limitNotice").hidden = true;
+    $("scratchBtn").removeAttribute("aria-disabled");
+    if (atLimit()) { showLimit(); $("scratchBtn").setAttribute("aria-disabled", "true"); }
+    createDlg.showModal();
+  }
+
+  $("newBtn").addEventListener("click", openCreate);
+  document.addEventListener("click", e => { if (e.target.closest("[data-new]")) openCreate(); });
+
+  $("scratchBtn").addEventListener("click", () => {
+    if (atLimit()) return showLimit();
+    createDlg.close();
+    $("appName").value = "";
+    pendingName = "";
+    hideErr();
+    nameDlg.showModal();
+    $("appName").focus();
+  });
+
+  [createDlg, nameDlg].forEach(d => d.addEventListener("click", e => {
+    if (e.target === d || e.target.closest("[data-close]")) d.close();
+  }));
+
+  let toastTimer;
+  function toast(text) {
+    const t = $("toast");
+    t.textContent = text;
+    t.classList.add("on");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => t.classList.remove("on"), 3200);
+  }
+
+  function showErr(text) {
+    $("nameMsgText").textContent = text;
+    $("nameMsg").classList.add("on");
+    const input = $("appName");
+    input.classList.remove("bad");
+    void input.offsetWidth;
+    input.classList.add("bad");
+    input.setAttribute("aria-invalid", "true");
+    input.focus();
+  }
+  function hideErr() {
+    $("nameMsg").classList.remove("on");
+    $("appName").classList.remove("bad");
+    $("appName").removeAttribute("aria-invalid");
+  }
+
+  // Only lowercase names are allowed, so lowercase as they type.
+  $("appName").addEventListener("input", e => {
+    const el = e.target, pos = el.selectionStart;
+    el.value = el.value.toLowerCase();
+    try { el.setSelectionRange(pos, pos); } catch (err) {}
+    hideErr();
+  });
+
+  $("nameForm").addEventListener("submit", async e => {
+    e.preventDefault();
+    const btn = $("createBtn");
+    const name = $("appName").value.trim().toLowerCase();
+    hideErr();
+
+    if (!NAME_RE.test(name)) {
+      return showErr("Use 3–32 characters: lowercase letters, numbers, - or _ (don't start with - or _).");
+    }
+    if (apps.some(a => a.name.toLowerCase() === name)) {
+      return showErr("You already have an app named \"" + name + "\". Pick a different name.");
+    }
+    const { u, p } = creds();
+    if (!u || !p) return showErr("You're signed out. Please sign up again.");
+
+    pendingName = name;
+    nameDlg.close();
+    openPlans();
+  });
+
+  /* ---------- plans ---------- */
+  const planDlg = $("planDlg");
+  const fmt = n => Number(n).toLocaleString();
+
+  function planCards() {
+    const freeFull = freeUsed >= maxFree;
+    const all = [{ name: "Free", price: 0, backups: 0, free: true }, ...plans];
+    return all.map(pl => {
+      const off = pl.free && freeFull;
+      const poor = !pl.free && credits < pl.price;
+      const sel = chosen === pl.name;
+      const feats = pl.free
+        ? ['<li>Your site on a <b>.fastsite.host</b> address</li>', '<li class="no">No backups</li>', '<li>Basic visit stats</li>']
+        : ['<li>Your site on a <b>.fastsite.host</b> address</li>', '<li><b>' + pl.backups + ' backups</b> at a time</li>', '<li>Full visit details for 7 days</li>'];
+      const note = off ? '<small class="hint">Free app limit reached</small>' : (poor ? '<small class="hint">Not enough credits</small>' : "");
+      return '<button type="button" class="plan" role="radio" data-plan="' + esc(pl.name) + '" aria-checked="' + sel + '"' +
+        (off || poor ? ' aria-disabled="true"' : "") + '>' +
+        (pl.name === "Pro" ? '<span class="tag">Popular</span>' : "") +
+        '<span class="pn">' + esc(pl.name) + '</span>' +
+        '<span class="pp">' + (pl.free ? "Free" : fmt(pl.price) + ' <small>credits</small>') + '</span>' +
+        '<ul>' + feats.join("") + '</ul>' + note + '</button>';
+    }).join("");
+  }
+
+  function renderPlans() {
+    $("plist").innerHTML = planCards();
+    $("bal").textContent = "Your credits: " + fmt(credits);
+    const cur = $("plist").querySelector('[data-plan="' + chosen + '"]');
+    $("planCreate").disabled = !cur || cur.getAttribute("aria-disabled") === "true";
+  }
+
+  function openPlans() {
+    $("planFor").textContent = pendingName;
+    $("planMsg").classList.remove("on");
+    // default: Free when a free slot is left, otherwise the cheapest plan they can afford
+    const firstPaid = plans.find(pl => credits >= pl.price);
+    chosen = freeUsed < maxFree ? "Free" : (firstPaid ? firstPaid.name : "");
+    renderPlans();
+    planDlg.showModal();
+  }
+
+  function planErr(text) {
+    $("planMsgText").textContent = text;
+    $("planMsg").classList.add("on");
+  }
+
+  $("plist").addEventListener("click", e => {
+    const b = e.target.closest("[data-plan]");
+    if (!b || b.getAttribute("aria-disabled") === "true") return;
+    chosen = b.dataset.plan;
+    $("planMsg").classList.remove("on");
+    renderPlans();
+  });
+
+  $("planBack").addEventListener("click", () => {
+    planDlg.close();
+    nameDlg.showModal();
+    $("appName").focus();
+  });
+  planDlg.addEventListener("click", e => {
+    if (e.target === planDlg || e.target.closest("[data-close]")) planDlg.close();
+  });
+
+  $("planCreate").addEventListener("click", async () => {
+    const btn = $("planCreate");
+    const { u, p } = creds();
+    if (!u || !p) return planErr("You're signed out. Please sign up again.");
+    if (!chosen) return planErr("Choose a plan first.");
+    const body = { username: u, password: p, appName: pendingName };
+    if (chosen !== "Free") body.plan = chosen;
+
+    btn.disabled = true;
+    btn.textContent = "Creating…";
+    try {
+      const r = await api("/apps/create", body);
+      if (!r.ok) {
+        if (r.status === 409) planErr("\"" + pendingName + "\" is already taken by another app. Go back and pick a different name.");
+        else if (r.status === 402) planErr(r.data.error || "Not enough credits for this plan.");
+        else if (r.status === 403) planErr(r.data.error || "You've reached the limit of " + max + " apps.");
+        else if (r.status === 401) planErr("We couldn't verify your account. Please sign up again.");
+        else planErr(r.data.error || "Could not create the app.");
+        return;
+      }
+      try { localStorage.setItem("lp-app-password:" + r.data.app.id, r.data.appPassword); } catch (err) {}
+      planDlg.close();
+      toast(r.data.app.name + " created");
+      location.href = "panel/overview?id=" + encodeURIComponent(r.data.app.id);
+    } catch (err) {
+      console.error(err);
+      planErr("Couldn't reach the server. Check your connection and try again.");
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "Create app";
+    }
+  });
+
+  loadApps();
+</script>
+</body>
+</html>
