@@ -4,7 +4,7 @@
  * Bindings needed:
  *   DB         D1 database  (table app_files, see schema below)
  *   ASSETS     static assets binding (already in your project)
- *   ADMIN_KEY  secret / variable – same key your backend sends
+ *   KV         KV namespace holding the key "ADMIN_KEY" – same key your backend sends
  *
  *   CREATE TABLE app_files (
  *     appid TEXT NOT NULL, file_path TEXT NOT NULL,
@@ -500,7 +500,9 @@ async function sha256(s) {
 }
 async function keyMatches(env, k) {
   if (typeof k !== "string" || !k) return false;
-  const [a, b] = await Promise.all([sha256(k), sha256(String(env.ADMIN_KEY))]);
+  const adminKey = await env.KV.get("ADMIN_KEY");
+  if (!adminKey) return false;
+  const [a, b] = await Promise.all([sha256(k), sha256(String(adminKey))]);
   let d = 0;
   for (let i = 0; i < a.length; i++) d |= a[i] ^ b[i];
   return d === 0;
@@ -768,7 +770,7 @@ async function route(request, env, url) {
   const isUpload = p === "/api/files/upload";
   const handler = isUpload ? uploadRoute : ROUTES[p];
   if (!handler || request.method !== "POST") throw new HttpError(404, "Not found");
-  if (!env.DB || !env.ADMIN_KEY) throw new HttpError(500, "Server is not configured (DB / ADMIN_KEY missing)");
+  if (!env.DB || !env.KV) throw new HttpError(500, "Server is not configured (DB / KV missing)");
 
   // step 1: key in the headers is checked before any body is read
   const hk = headerKey(request);
