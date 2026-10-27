@@ -1,9 +1,10 @@
-[[kv_namespaces]]
-binding = "KV"
-id = "e8f0ddebafe04078ac235b34bfcf79a5"
 name = "lite-pages"
 main = "worker.js"
 compatibility_date = "2026-10-25"
+
+[[kv_namespaces]]
+binding = "KV"
+id = "e8f0ddebafe04078ac235b34bfcf79a5"
 
 [assets]
 directory = "./public"
@@ -14,7 +15,3 @@ not_found_handling = "none"
 binding = "DB"
 database_name = "files"
 database_id = "8c88d133-3735-442b-8572-112cf6fb3ead"
-
-[[kv_namespaces]]
-binding = "KV"
-id = "e8f0ddebafe04078ac235b34bfcf79a5"
