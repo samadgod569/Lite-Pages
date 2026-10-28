@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Code editor – Fast Site</title>
+<link rel="icon" type="image/svg+xml" href="../images/logo.svg">
+<script>
+  (function(){var u,p;try{u=localStorage.getItem("lp-username");p=localStorage.getItem("lp-password")}catch(e){}
+  var q=new URLSearchParams(location.search);
+  if(!u||!p)location.replace("../signup.html");
+  else if(!q.get("id"))location.replace("../dashboard.html");
+  else if(!q.get("path"))location.replace("file-system.html?id="+encodeURIComponent(q.get("id")))})();
+</script>
+<script>
+  (function(){var t;try{t=localStorage.getItem("lp-theme")}catch(e){}
+  if(!t)t=matchMedia("(prefers-color-scheme:dark)").matches?"dark":"light";
+  document.documentElement.dataset.theme=t})();
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{color-scheme:light;--bg:#fff;--surface:#fff;--soft:#f4f4f5;--line:#e4e4e7;--text:#09090b;--muted:#52525b;--accent:#0e7490;--accent-ink:#fff;--glow:#dff3f7;--danger:#b91c1c;--ok:#16a34a;--warn:#d97706}
+  [data-theme=dark]{color-scheme:dark;--bg:#000;--surface:#0a0a0a;--soft:#111113;--line:#262629;--text:#fafafa;--muted:#a1a1aa;--accent:#5be0f0;--accent-ink:#001418;--glow:#0b2c33;--danger:#f87171;--ok:#4ade80;--warn:#fbbf24}
+  *{box-sizing:border-box}
+    body{margin:0;display:flex;flex-direction:column;min-height:100dvh;background:var(--bg);color:var(--text);font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif;line-height:1.5}
+  .ed-page{flex:1;display:flex;flex-direction:column;min-width:0}
+  svg{fill:currentColor}
+  .ed-head svg,.ed-status svg,.btn svg,.ib svg{width:18px;height:18px;flex-shrink:0}
+  [hidden]{display:none!important}
+  button{font-family:inherit}
+  button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+  .ed-head{display:flex;align-items:center;gap:10px;padding:10px 12px;padding-top:max(10px,env(safe-area-inset-top));border-bottom:1px solid var(--line);background:var(--surface)}
+  .ib{display:grid;place-items:center;width:38px;height:38px;border-radius:11px;border:1px solid var(--line);background:var(--surface);color:var(--text);cursor:pointer;flex-shrink:0;text-decoration:none}
+  .ib:hover{background:var(--soft)}
+  .ib[aria-pressed=true]{background:var(--soft);border-color:var(--accent);color:var(--accent)}
+  .ed-title{flex:1;min-width:0}
+  .ed-title b{display:flex;align-items:center;gap:8px;font-size:15px;letter-spacing:-.01em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--warn);flex-shrink:0}
+  .ed-title small{display:block;color:var(--muted);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;height:38px;padding:0 16px;border-radius:11px;font:600 14px Inter,sans-serif;cursor:pointer;border:1px solid var(--accent);background:var(--accent);color:var(--accent-ink);flex-shrink:0}
+  .btn:hover{filter:brightness(1.08)}
+  .btn:disabled{opacity:.45;cursor:default;filter:none}
+
+  #editor{height:max(420px,calc(100dvh - 240px));position:relative;background:var(--bg)}
+  .state{position:absolute;inset:0;display:grid;place-items:center;text-align:center;padding:24px;color:var(--muted);font-size:15px}
+  .state b{display:block;color:var(--text);font-size:18px;margin-bottom:6px}
+  .state a{display:inline-block;margin-top:14px;padding:9px 18px;border-radius:11px;background:var(--accent);color:var(--accent-ink);font-weight:600;text-decoration:none}
+  .spin{width:26px;height:26px;border-radius:50%;border:3px solid var(--line);border-top-color:var(--accent);animation:sp .8s linear infinite;margin:0 auto 12px}
+  @keyframes sp{to{transform:rotate(360deg)}}
+
+  .ed-status{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:6px 14px;padding-bottom:max(6px,env(safe-area-inset-bottom));border-top:1px solid var(--line);background:var(--surface);font-size:12px;color:var(--muted)}
+  .ed-status span{white-space:nowrap}
+  .ed-status b{color:var(--text);font-weight:600}
+  .grp{display:flex;gap:14px;min-width:0;overflow:hidden}
+
+  .toast{position:fixed;left:50%;bottom:28px;transform:translate(-50%,20px);opacity:0;pointer-events:none;background:var(--text);color:var(--bg);font-weight:600;font-size:14px;padding:10px 20px;border-radius:999px;transition:.25s;z-index:100;max-width:calc(100% - 32px);text-align:center}
+  .toast.on{opacity:1;transform:translate(-50%,0)}
+
+  dialog{border:1px solid var(--line);border-radius:22px;background:var(--surface);color:var(--text);padding:0;width:min(420px,calc(100% - 28px))}
+  dialog::backdrop{background:rgba(0,0,0,.55);backdrop-filter:blur(4px)}
+  dialog form{padding:24px}
+  dialog h2{margin:0 0 6px;font-size:20px;letter-spacing:-.02em}
+  dialog p{margin:0 0 14px;color:var(--muted);font-size:14px}
+  dialog input{width:100%;height:44px;padding:0 14px;border-radius:12px;border:1px solid var(--line);background:var(--bg);color:var(--text);font:500 15px Inter,sans-serif}
+  dialog input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--glow)}
+  .acts{display:flex;justify-content:flex-end;gap:10px;margin-top:16px}
+  .btn.ghost{background:var(--surface);color:var(--text);border-color:var(--line)}
+  @media(max-width:560px){.btn span{display:none}.btn{padding:0 12px}.hide-m{display:none}}
+</style>
+</head>
+<body>
+
+<div id="panelEssentials"></div>
+
+<div class="ed-page">
+<header class="ed-head">
+  <a class="ib" id="back" href="file-system.html" aria-label="Back to files" title="Back to files"><svg viewBox="0 0 24 24"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20z"/></svg></a>
+  <div class="ed-title"><b><span id="fName" style="overflow:hidden;text-overflow:ellipsis">Loading…</span><i class="dot" id="dirty" hidden title="Unsaved changes"></i></b><small id="fPath">&nbsp;</small></div>
+  <button class="ib" id="wrapBtn" type="button" aria-label="Toggle word wrap" aria-pressed="false" title="Word wrap"><svg viewBox="0 0 24 24"><path d="M4 19h6v-2H4zM20 5H4v2h16zm-3 6H4v2h13.25c1.1 0 2 .9 2 2s-.9 2-2 2H15v-2l-3 3 3 3v-2h2c2.21 0 4-1.79 4-4s-1.79-4-4-4z"/></svg></button>
+  <button class="ib hide-m" id="findBtn" type="button" aria-label="Find and replace" title="Find (Ctrl+F)"><svg viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27A6.47 6.47 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg></button>
+  <button class="btn" id="save" type="button" disabled><svg viewBox="0 0 24 24"><path d="M17 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V7zm-5 16a3 3 0 1 1 0-6 3 3 0 0 1 0 6zm3-10H5V5h10z"/></svg><span>Save</span></button>
+</header>
+
+<div id="editor"><div class="state"><div><div class="spin"></div>Loading editor…</div></div></div>
+
+<div class="ed-status">
+  <div class="grp"><span><b id="sLang">Plain text</b></span><span id="sPos">Ln 1, Col 1</span></div>
+  <div class="grp"><span id="sSize"></span><span class="hide-m">Ctrl+S to save</span></div>
+</div>
+</div>
+
+<div id="footer"></div>
+
+<div class="toast" id="toast" role="status"></div>
+
+<dialog id="passDlg">
+  <form id="passForm" method="dialog">
+    <h2>App password</h2>
+    <p>Enter the password of this app. You received it when the app was created.</p>
+    <input id="passInput" type="password" autocomplete="off" placeholder="App password">
+    <div class="acts"><button class="btn ghost" type="button" id="passCancel">Cancel</button><button class="btn" type="submit">Continue</button></div>
+  </form>
+</dialog>
+
+<script>
+  const API_BASE = "https://gen1-litepages.wisp.uno/api";
+  const Q = new URLSearchParams(location.search);
+  const APP_ID = Q.get("id") || "";
+  const FILE_PATH = Q.get("path") || "";
+  const MAX_EDIT = 1024 * 1024;
+  const $ = id => document.getElementById(id);
+  const BINARY = ["png","jpg","jpeg","gif","webp","ico","bmp","avif","zip","tar","gz","tgz","rar","7z","pdf","mp3","mp4","mov","webm","wav","ogg","woff","woff2","ttf","otf","eot","exe","bin","psd","doc","docx","xls","xlsx","ppt","pptx"];
+  const extOf = n => { const i = n.lastIndexOf("."); return i > 0 ? n.slice(i + 1).toLowerCase() : ""; };
+  const baseOf = p => p.includes("/") ? p.slice(p.lastIndexOf("/") + 1) : p;
+  const parentOf = p => p.includes("/") ? p.slice(0, p.lastIndexOf("/")) : "";
+  const FILE_NAME = Q.get("name") || baseOf(FILE_PATH);
+
+  // back link returns to the file manager with just the app id
+  $("back").href = "file-system.html?id=" + encodeURIComponent(APP_ID);
+
+  // shared panel navbar/essentials + panel-only footer
+  fetch("../assets/panel-essentials.html").then(r => r.text()).then(html => {
+    const box = $("panelEssentials");
+    box.innerHTML = html;
+    box.querySelectorAll("script").forEach(old => {
+      const sc = document.createElement("script");
+      sc.textContent = old.textContent;
+      old.replaceWith(sc);
+    });
+  }).catch(e => console.error("Could not load panel-essentials.html", e));
+  fetch("../assets/footer-panel.html").then(r => r.ok ? r.text() : "").then(h => { $("footer").innerHTML = h; }).catch(() => {});
+  document.title = FILE_NAME + " – Code editor";
+  $("fName").textContent = FILE_NAME;
+  $("fPath").textContent = "Home / " + FILE_PATH.split("/").join(" / ");
+
+  let toastTimer;
+  function toast(t) { const el = $("toast"); el.textContent = t; el.classList.add("on"); clearTimeout(toastTimer); toastTimer = setTimeout(() => el.classList.remove("on"), 3000); }
+
+  /* ---------- API (same as file system page) ---------- */
+  const creds = () => { try { return { u: localStorage.getItem("lp-username"), p: localStorage.getItem("lp-password") }; } catch (e) { return {}; } };
+  const PASS_KEY = "lp-app-password:" + APP_ID;
+  const appPass = () => { try { return localStorage.getItem(PASS_KEY) || ""; } catch (e) { return ""; } };
+  const setPass = v => { try { v ? localStorage.setItem(PASS_KEY, v) : localStorage.removeItem(PASS_KEY); } catch (e) {} };
+  function askPass() {
+    return new Promise((resolve, reject) => {
+      const d = $("passDlg"); let done = false;
+      $("passInput").value = "";
+      d.showModal(); $("passInput").focus();
+      $("passForm").onsubmit = () => { const v = $("passInput").value.trim(); if (!v) return; done = true; setPass(v); d.close(); resolve(v); };
+      $("passCancel").onclick = () => d.close();
+      d.onclose = () => { if (!done) reject(new Error("App password required")); };
+    });
+  }
+  async function request(url, body) {
+    const { u, p } = creds();
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const ap = appPass() || await askPass();
+      let res;
+      try {
+        res = await fetch(API_BASE + url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username: u, password: p, appId: APP_ID, appPassword: ap, ...body }) });
+      } catch (e) { throw new Error("Couldn't reach the server. Check your connection."); }
+      let data = {};
+      try { data = await res.json(); } catch (e) {}
+      if (res.status === 401) {
+        if (/app password/i.test(data.error || "")) { setPass(""); continue; }
+        location.replace("../signup.html"); throw new Error("Signed out");
+      }
+      if (!res.ok || data.success === false) throw new Error(data.error || "Request failed (HTTP " + res.status + ")");
+      return data;
+    }
+    throw new Error("Wrong app password");
+  }
+  const fsApi = (op, extra) => request("/fs", { op, ...extra });
+
+  /* ---------- Languages + themes ---------- */
+  const FM_LANG_BY_EXT = {
+    js: 'javascript', jsx: 'javascript', mjs: 'javascript', cjs: 'javascript',
+    ts: 'typescript', tsx: 'typescript', mts: 'typescript', cts: 'typescript',
+    json: 'json', jsonc: 'json', json5: 'json', map: 'json', webmanifest: 'json',
+    html: 'html', htm: 'html', vue: 'html', svelte: 'html', ejs: 'html', hbs: 'handlebars',
+    css: 'css', scss: 'scss', sass: 'scss', less: 'less',
+    py: 'python', go: 'go', php: 'php', java: 'java', rb: 'ruby', rs: 'rust',
+    kt: 'kotlin', swift: 'swift', lua: 'lua', pl: 'perl', r: 'r', dart: 'dart',
+    sh: 'shell', bash: 'shell', zsh: 'shell', fish: 'shell',
+    yml: 'yaml', yaml: 'yaml', md: 'markdown', markdown: 'markdown',
+    sql: 'sql', xml: 'xml', svg: 'xml', xsd: 'xml', c: 'c', h: 'c', cpp: 'cpp', hpp: 'cpp', cc: 'cpp', cs: 'csharp',
+    env: 'ini', ini: 'ini', toml: 'ini', cfg: 'ini', properties: 'ini', service: 'ini', desktop: 'ini', editorconfig: 'ini',
+    conf: 'nginx', nginx: 'nginx', vhost: 'nginx', log: 'log', out: 'log', err: 'log',
+    dockerfile: 'dockerfile', graphql: 'graphql', gql: 'graphql', csv: 'plaintext', txt: 'plaintext',
+  };
+  const FM_LANG_BY_NAME = {
+    'dockerfile': 'dockerfile', 'makefile': 'shell', '.bashrc': 'shell', '.zshrc': 'shell', '.profile': 'shell',
+    '.gitignore': 'ini', '.dockerignore': 'ini', '.npmrc': 'ini', '.editorconfig': 'ini',
+    'nginx.conf': 'nginx', 'caddyfile': 'nginx', 'procfile': 'shell', '.babelrc': 'json', '.eslintrc': 'json', '.prettierrc': 'json',
+  };
+  function fmLangForPath(p){
+    const base = p.split('/').pop().toLowerCase();
+    if (FM_LANG_BY_NAME[base]) return FM_LANG_BY_NAME[base];
+    if (base.startsWith('.env')) return 'ini';
+    if (base.startsWith('dockerfile')) return 'dockerfile';
+    const ext = base.includes('.') ? base.split('.').pop() : '';
+    return FM_LANG_BY_EXT[ext] || '';
+  }
+  // Looks at the file content when the name alone doesn't tell us the language.
+  function fmDetectLang(path, content){
+    const byName = fmLangForPath(path);
+    if (byName && byName !== 'plaintext') return byName;
+    const head = (content || '').slice(0, 2000).trimStart();
+    if (/^#!.*\b(ba|z|da)?sh\b/.test(head)) return 'shell';
+    if (/^#!.*python/.test(head)) return 'python';
+    if (/^#!.*node/.test(head)) return 'javascript';
+    if (/^<\?php/.test(head)) return 'php';
+    if (/^<\?xml/.test(head)) return 'xml';
+    if (/^<!doctype html|^<html|^<head|^<body|^<div|^<script/i.test(head)) return 'html';
+    if (/^[\[{]/.test(head)) { try { JSON.parse(content); return 'json'; } catch {} }
+    if (/(^|\n)\s*(server|location|upstream|http|events)\s*[^;\n]*\{/.test(head) || /(^|\n)\s*(listen|server_name|proxy_pass|root|worker_processes)\s+[^;\n]+;/.test(head)) return 'nginx';
+    if (/^\d{4}[-/]\d{2}[-/]\d{2}[ T]\d{2}:\d{2}/.test(head) || /^\[\d{4}[-/]/.test(head)) return 'log';
+    if (/^---\s*\n|^[\w.-]+:\s+\S/m.test(head) && !/[{};]/.test(head.slice(0, 300))) return 'yaml';
+    if (/^\[[\w.-]+\]\s*$/m.test(head)) return 'ini';
+    if (/^#{1,6}\s|^\s*[-*]\s.+\n/m.test(head)) return 'markdown';
+    return 'plaintext';
+  }
+  
+  // Custom languages (nginx configs + log files have no built-in Monaco support)
+  function fmRegisterExtraLanguages(){
+    monaco.languages.register({ id: 'nginx' });
+    monaco.languages.setLanguageConfiguration('nginx', {
+      comments: { lineComment: '#' },
+      brackets: [['{', '}']],
+      autoClosingPairs: [{ open: '{', close: '}' }, { open: '"', close: '"' }, { open: "'", close: "'" }],
+      surroundingPairs: [{ open: '{', close: '}' }, { open: '"', close: '"' }, { open: "'", close: "'" }],
+    });
+    monaco.languages.setMonarchTokensProvider('nginx', {
+      tokenizer: { root: [
+        [/#.*$/, 'comment'],
+        [/\b(server|location|upstream|http|events|stream|map|geo|types|limit_except|if)\b(?=[\s{(])/, 'keyword'],
+        [/\$\{[^}]+\}|\$[a-zA-Z_]\w*/, 'variable'],
+        [/"([^"\\]|\\.)*"/, 'string'],
+        [/'([^'\\]|\\.)*'/, 'string'],
+        [/\b\d+(\.\d+)?[kKmMgGsdhwy]?\b/, 'number'],
+        [/\b(on|off|any|all|none|default|last|break|redirect|permanent|always|ssl|http2|reuseport|http|https)\b/, 'constant'],
+        [/(^\s*|[;{]\s*)([a-z_][a-z0-9_]*)/, ['delimiter', 'type']],
+        [/~\*?|\^~|=/, 'operator'],
+        [/[{};]/, 'delimiter'],
+      ] },
+    });
+    monaco.languages.register({ id: 'log' });
+    monaco.languages.setMonarchTokensProvider('log', {
+      ignoreCase: true,
+      tokenizer: { root: [
+        [/\b(error|err|fatal|critical|crit|emerg|alert|exception|failed|failure|panic)\b/, 'log.error'],
+        [/\b(warn|warning)\b/, 'log.warn'],
+        [/\b(info|notice|success|ok|started|listening)\b/, 'log.info'],
+        [/\b(debug|trace|verbose)\b/, 'log.debug'],
+        [/\d{4}[-/]\d{2}[-/]\d{2}([ T]\d{2}:\d{2}:\d{2}([.,]\d+)?(Z|[+-]\d{2}:?\d{2})?)?/, 'log.date'],
+        [/\b\d{2}:\d{2}:\d{2}([.,]\d+)?\b/, 'log.date'],
+        [/\b\d{1,3}(\.\d{1,3}){3}(:\d+)?\b/, 'log.ip'],
+        [/\b[2]\d\d\b(?=\s)/, 'log.info'],
+        [/\b[45]\d\d\b(?=\s)/, 'log.error'],
+        [/"([^"\\]|\\.)*"/, 'string'],
+        [/\[[^\]]*\]/, 'log.bracket'],
+        [/https?:\/\/\S+/, 'log.url'],
+        [/\b\d+(\.\d+)?\b/, 'number'],
+      ] },
+    });
+  }
+  
+  function fmDefineThemes(){
+    const common = (c) => [
+      { token: 'comment', foreground: c.comment, fontStyle: 'italic' },
+      { token: 'keyword', foreground: c.keyword },
+      { token: 'keyword.json', foreground: c.keyword },
+      { token: 'string', foreground: c.string },
+      { token: 'string.key.json', foreground: c.variable },
+      { token: 'string.value.json', foreground: c.string },
+      { token: 'number', foreground: c.number },
+      { token: 'type', foreground: c.type },
+      { token: 'type.identifier', foreground: c.type },
+      { token: 'tag', foreground: c.tag },
+      { token: 'metatag', foreground: c.tag },
+      { token: 'attribute.name', foreground: c.attr },
+      { token: 'attribute.value', foreground: c.string },
+      { token: 'variable', foreground: c.variable },
+      { token: 'variable.predefined', foreground: c.variable },
+      { token: 'constant', foreground: c.number },
+      { token: 'operator', foreground: c.operator },
+      { token: 'delimiter', foreground: c.delim },
+      { token: 'delimiter.bracket', foreground: c.delim },
+      { token: 'regexp', foreground: c.regexp },
+      { token: 'annotation', foreground: c.attr },
+      { token: 'log.error', foreground: c.err, fontStyle: 'bold' },
+      { token: 'log.warn', foreground: c.number, fontStyle: 'bold' },
+      { token: 'log.info', foreground: c.string },
+      { token: 'log.debug', foreground: c.comment },
+      { token: 'log.date', foreground: c.variable },
+      { token: 'log.ip', foreground: c.type },
+      { token: 'log.bracket', foreground: c.keyword },
+      { token: 'log.url', foreground: c.variable, fontStyle: 'underline' },
+    ];
+    monaco.editor.defineTheme('dockhive-dark', {
+      base: 'vs-dark', inherit: true,
+      rules: common({ comment: '6b7280', keyword: 'f472b6', string: '86efac', number: 'fbbf24', type: '67e8f9', tag: 'fb7185', attr: 'fcd34d', variable: '93c5fd', operator: 'f9a8d4', delim: 'a1a1aa', regexp: 'fda4af', err: 'f87171' }),
+      colors: {
+        'editor.background': '#000000', 'editor.foreground': '#e5e7eb',
+        'editorLineNumber.foreground': '#4b5260', 'editorLineNumber.activeForeground': '#5be0f0',
+        'editor.lineHighlightBackground': '#111113', 'editor.selectionBackground': '#5be0f040',
+        'editorCursor.foreground': '#5be0f0', 'editorIndentGuide.background1': '#17171a', 'editorIndentGuide.activeBackground1': '#3a3f4a',
+        'editorGutter.background': '#000000', 'minimap.background': '#000000', 'editorWidget.background': '#111113',
+        'scrollbarSlider.background': '#5be0f033', 'scrollbarSlider.hoverBackground': '#5be0f066',
+      },
+    });
+    monaco.editor.defineTheme('dockhive-light', {
+      base: 'vs', inherit: true,
+      rules: common({ comment: '8a8f98', keyword: 'a21caf', string: '15803d', number: 'c2410c', type: '0e7490', tag: 'be123c', attr: 'b45309', variable: '1d4ed8', operator: 'be185d', delim: '52525b', regexp: 'be123c', err: 'dc2626' }),
+      colors: {
+        'editor.background': '#ffffff', 'editor.foreground': '#000000',
+        'editorLineNumber.foreground': '#a1a1aa', 'editorLineNumber.activeForeground': '#0e7490',
+        'editor.lineHighlightBackground': '#f4f4f5', 'editor.selectionBackground': '#0e749033',
+        'editorCursor.foreground': '#0e7490', 'editorGutter.background': '#ffffff',
+      },
+    });
+  }
+  
+  
+
+  /* ---------- Monaco ---------- */
+  const MBASE = "https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min";
+  const isDark = () => document.documentElement.dataset.theme === "dark";
+  const themeName = () => isDark() ? "dockhive-dark" : "dockhive-light";
+  let editor = null, savedText = "", saving = false;
+
+  function loadScript(src) {
+    return new Promise((ok, no) => { const s = document.createElement("script"); s.src = src; s.onload = ok; s.onerror = () => no(new Error("Couldn't load the editor. Check your connection.")); document.head.appendChild(s); });
+  }
+  function showState(title, text, link) {
+    $("editor").innerHTML = '<div class="state"><div><b>' + title + "</b>" + text + (link ? '<br><a href="' + $("back").href + '">Back to files</a>' : "") + "</div></div>";
+  }
+  const fmtSize = n => n < 1024 ? n + " B" : (n / 1024).toFixed(n < 10240 ? 1 : 0) + " KB";
+  const esc = t => String(t).replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+
+  function setDirty(d) {
+    $("dirty").hidden = !d;
+    $("save").disabled = !d || saving;
+    document.title = (d ? "• " : "") + FILE_NAME + " – Code editor";
+  }
+
+  async function boot() {
+    if (BINARY.includes(extOf(FILE_NAME))) return showState("Can't edit this file", "This file type can't be edited. Use Download from the file manager.", true);
+    let text;
+    try {
+      const d = await fsApi("read", { path: FILE_PATH, encoding: "utf8" });
+      text = d.content || "";
+    } catch (err) { return showState("Couldn't open file", esc(err.message), true); }
+    if (text.includes("\u0000")) return showState("Binary file", "This looks like a binary file. Use Download from the file manager.", true);
+    if (text.length > MAX_EDIT) return showState("File too large", "Files over 1 MB can't be edited here.", true);
+
+    try {
+      if (!window.require || !window.require.config) await loadScript(MBASE + "/vs/loader.js");
+      window.MonacoEnvironment = { getWorkerUrl: () => URL.createObjectURL(new Blob(["self.MonacoEnvironment={baseUrl:'" + MBASE + "/'};importScripts('" + MBASE + "/vs/base/worker/workerMain.js');"], { type: "text/javascript" })) };
+      require.config({ paths: { vs: MBASE + "/vs" } });
+      await new Promise(res => require(["vs/editor/editor.main"], res));
+    } catch (err) { return showState("Editor failed to load", esc(err.message), true); }
+
+    fmRegisterExtraLanguages();
+    fmDefineThemes();
+    const mobile = innerWidth <= 760, lang = fmDetectLang(FILE_PATH, text);
+    $("editor").innerHTML = "";
+    editor = monaco.editor.create($("editor"), {
+      value: text, language: lang, theme: themeName(), automaticLayout: true,
+      minimap: { enabled: !mobile }, fontSize: mobile ? 14 : 14, lineHeight: mobile ? 22 : 22,
+      fontFamily: "'JetBrains Mono','Fira Code',ui-monospace,SFMono-Regular,Menlo,Consolas,monospace",
+      tabSize: 2, padding: { top: 12, bottom: 12 }, scrollBeyondLastLine: false, smoothScrolling: true,
+      cursorSmoothCaretAnimation: "on", bracketPairColorization: { enabled: true }, guides: { indentation: true },
+      renderLineHighlight: "all", renderWhitespace: "selection", wordWrap: mobile ? "on" : "off",
+      lineNumbersMinChars: mobile ? 3 : 4, glyphMargin: false, folding: !mobile, fixedOverflowWidgets: true,
+      mouseWheelZoom: true, formatOnPaste: false
+    });
+    savedText = editor.getValue();
+    $("sLang").textContent = (monaco.languages.getLanguages().find(l => l.id === lang) || {}).aliases?.[0] || lang;
+    $("sSize").textContent = fmtSize(new Blob([text]).size);
+    $("wrapBtn").setAttribute("aria-pressed", String(mobile));
+    editor.onDidChangeModelContent(() => setDirty(editor.getValue() !== savedText));
+    editor.onDidChangeCursorPosition(e => { $("sPos").textContent = "Ln " + e.position.lineNumber + ", Col " + e.position.column; });
+    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, save);
+    editor.focus();
+    new MutationObserver(() => monaco.editor.setTheme(themeName())).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+  }
+
+  async function save() {
+    if (!editor || saving || editor.getValue() === savedText) return;
+    saving = true; $("save").disabled = true;
+    const val = editor.getValue();
+    try {
+      await fsApi("write", { path: FILE_PATH, content: val, encoding: "utf8" });
+      savedText = val;
+      $("sSize").textContent = fmtSize(new Blob([val]).size);
+      toast("Saved");
+    } catch (err) { toast(err.message); }
+    saving = false; setDirty(editor.getValue() !== savedText);
+  }
+
+  $("save").addEventListener("click", save);
+  $("wrapBtn").addEventListener("click", () => {
+    if (!editor) return;
+    const on = $("wrapBtn").getAttribute("aria-pressed") !== "true";
+    $("wrapBtn").setAttribute("aria-pressed", String(on));
+    editor.updateOptions({ wordWrap: on ? "on" : "off" });
+  });
+  $("findBtn").addEventListener("click", () => editor && editor.getAction("actions.find").run());
+  addEventListener("beforeunload", e => { if (editor && editor.getValue() !== savedText) { e.preventDefault(); e.returnValue = ""; } });
+  $("back").addEventListener("click", e => { if (editor && editor.getValue() !== savedText && !confirm("You have unsaved changes. Leave without saving?")) e.preventDefault(); });
+
+  boot();
+</script>
+</body>
+</html>
