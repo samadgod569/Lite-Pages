@@ -1,40 +1,26 @@
 /**
- * Fast Site – Cloudflare Worker (static assets + D1 file storage)
+ * Fast Site – Cloudflare Worker: users, apps, files, cache rules, stats and page serving.
  *
- * Bindings needed:
- *   DB         D1 database  (table app_files, see schema below)
- *   ASSETS     static assets binding (already in your project)
- *   KV         KV namespace holding the key "ADMIN_KEY" – same key your backend sends
+ * Bindings / variables
+ *   DB       D1  files            (table app_files, schema-db.sql)
+ *   INFO     D1  users + apps + stats (schema-info.sql)
+ *   KV       KV namespace with the key "ADMIN_KEY" (same key the backend uses)
+ *   ASSETS   static assets (dashboard)
+ *   secret   DATA_SECRET            random string, encrypts/hashes passwords (never change it)
+ *   secret   DISCORD_CLIENT_SECRET
+ *   vars     DISCORD_CLIENT_ID, DISCORD_REDIRECT_URI, APP_DOMAIN (fastsite.host),
+ *            BACKEND_URL (gen1 server, e.g. https://gen1.example.com), CORS_ORIGINS,
+ *            DASHBOARD_HOSTS (optional, extra hosts that show the dashboard instead of an app)
+ *   cron     every 5 minutes (scheduled purges + old stats cleanup)
  *
- *   CREATE TABLE app_files (
- *     appid TEXT NOT NULL, file_path TEXT NOT NULL,
- *     file_content BLOB NOT NULL, info TEXT,
- *     PRIMARY KEY (appid, file_path)
- *   );
+ * Hosts: dashboard hosts (CORS_ORIGINS, APP_DOMAIN, *.workers.dev) get the dashboard + API.
+ * Every other host (<name>.APP_DOMAIN or a verified custom domain) is served as an app.
  *
- * How files are stored
- *   - A file is split in 1.5 MB chunks (D1 row limit is 2 MB).
- *   - Chunk 0 lives at  file_path = "<path>"            and holds the metadata in `info`:
- *         {"type":"file","size":N,"chunks":K,"chunkSize":1572864,"modified":"ISO"}
- *   - Chunk i>0 lives at file_path = "<path>\x1f<i padded to 5>"   info = {"type":"chunk","index":i}
- *     (\x1f can never appear in a real path, so no collisions)
- *   - Empty folders (mkdir) are rows with info = {"type":"dir"}; other folders are implicit.
+ * Admin API (x-admin-key): /api/files/*  and  /api/admin/*   (used by the backend)
+ * User API (username/password/...): /api/discord-signup, /api/apps/*, /api/fs, /api/cache/*, /api/backups/*
  *
- * Auth (any one):  x-admin-key: <key>  |  Authorization: Bearer <key>  |  "adminKey" in JSON body (max 64 KB)
- *
- * Endpoints (all POST, JSON unless noted):
- *   /api/files/write      { appId, path, content, encoding? }
- *   /api/files/read       { appId, path, encoding? }
- *   /api/files/raw        { appId, path }                      file streamed back
- *   /api/files/list       { appId, path? }
- *   /api/files/delete     { appId, path }                      file or folder
- *   /api/files/delete-all { appId }
- *   /api/files/rename     { appId, path, newName }
- *   /api/files/move       { appId, from, to, overwrite? }
- *   /api/files/mkdir      { appId, path }
- *   /api/files/upload     multipart: appId, path?, extract?, file   (header auth only)
- *   /api/files/extract    { appId, path, to?, deleteArchive? }  .zip .tar .tar.gz .tgz
- *   GET /health
+ * File storage (D1 "DB"): files are split in 1.5 MB chunks, chunk 0 at file_path = "<path>" with the
+ * metadata in `info`, chunk i>0 at "<path>\x1f<i padded to 5>", empty folders have info {"type":"dir"}.
  */
 
 // ---------------------------------------------------------------- limits
@@ -716,14 +702,16 @@ ROUTES["/api/files/extract"] = async ({ env, body }) => {
 };
 
 // Upload one or more files (multipart, header auth only).  Fields: appId, path?, extract?, file
-async function uploadRoute({ request, env }) {
+async function uploadRoute({ request, env, form: preForm, appIdOverride }) {
   const cl = Number(request.headers.get("content-length"));
   if (cl > MAX_UPLOAD_BYTES) throw new HttpError(413, "File is too large");
-  let form;
-  try { form = await request.formData(); }
-  catch { throw new HttpError(400, "Send the upload as multipart/form-data"); }
+  let form = preForm;
+  if (!form) {
+    try { form = await request.formData(); }
+    catch { throw new HttpError(400, "Send the upload as multipart/form-data"); }
+  }
 
-  const appId = form.get("appId");
+  const appId = appIdOverride || form.get("appId");
   checkAppId(appId);
   const files = form.getAll("file").filter(f => typeof f !== "string");
   if (!files.length) throw new HttpError(400, "No file received (send it in the \"file\" field)");
@@ -764,76 +752,1340 @@ function corsHeaders(request) {
   };
 }
 
-async function route(request, env, url) {
-  const p = url.pathname;
-  if (p === "/health" && request.method === "GET") return json({ ok: true });
-  const isUpload = p === "/api/files/upload";
-  const handler = isUpload ? uploadRoute : ROUTES[p];
-  if (!handler || request.method !== "POST") throw new HttpError(404, "Not found");
-  if (!env.DB || !env.KV) throw new HttpError(500, "Server is not configured (DB / KV missing)");
+// ================================================================
+// Fast Site – users, apps, cache rules, stats and page serving
+// (everything that used to live in server.js, except backups + DNS check)
+// ================================================================
+const MAX_APPS_PER_USER = Infinity;
+const MAX_FREE_APPS_PER_USER = 1;
+const PLANS = {
+  basic:      { name: "Basic",      price: 150, backups: 5,  dailyRequests: 1_000_000 },
+  standard:   { name: "Standard",   price: 200, backups: 7,  dailyRequests: 10_000_000 },
+  pro:        { name: "Pro",        price: 250, backups: 9,  dailyRequests: 100_000_000 },
+  enterprise: { name: "Enterprise", price: 300, backups: 11, dailyRequests: 1_000_000_000 },
+};
+const FREE_DAILY_REQUESTS = 100_000;
+const APP_NAME_RE = /^[a-z0-9][a-z0-9_-]{2,31}$/;
+const NAME_RULE = "App name must be 3-32 lowercase characters: a-z, 0-9, - or _ (cannot start with - or _)";
+const DEFAULT_CORS = "https://litepages.host,https://lite-pages.thecodemonai.workers.dev";
+const AUTH_TTL = 300, HOST_TTL = 120, NONE_TTL = 30; // edge cache lifetimes (seconds)
+const INFO_KEEP_DAYS = 7;
+const MAX_RAW_VISITS_PER_APP = 5000;
 
-  // step 1: key in the headers is checked before any body is read
-  const hk = headerKey(request);
-  if (hk && !(await keyMatches(env, hk))) throw denied();
-  const authed = !!hk;
+const dayKey = (d) => d.toISOString().slice(0, 10);
+const todayKey = () => dayKey(new Date());
+const parseJson = (s, d) => { try { const v = JSON.parse(s); return v ?? d; } catch { return d; } };
+const clip = (v) => (v === undefined || v === null || v === "" ? null : String(v).slice(0, 100));
+const isPremium = (rec) => (rec.plan || "Free") !== "Free";
+const backupLimit = (rec) => { const p = PLANS[String(rec.plan || "").toLowerCase()]; return p ? p.backups : 0; };
+const dailyRequestLimit = (rec) => { const p = PLANS[String(rec.plan || "").toLowerCase()]; return p ? p.dailyRequests : FREE_DAILY_REQUESTS; };
+const appDomainOf = (env) => String(env.APP_DOMAIN || "fastsite.host").toLowerCase();
+const originsOf = (env) => String(env.CORS_ORIGINS || DEFAULT_CORS).split(",").map((s) => s.trim()).filter(Boolean);
 
-  if (isUpload) {
-    if (!authed) throw denied(); // uploads: header auth only
-    return uploadRoute({ request, env });
-  }
-
-  const body = await readJson(request, authed ? MAX_JSON_BYTES : SMALL_JSON_BYTES);
-  // step 2: no header? then the key must be in the JSON body
-  if (!authed && !(await keyMatches(env, body.adminKey))) throw denied();
-  return handler({ request, env, body });
+// Dashboard / API hosts. Every other host is an app (<name>.APP_DOMAIN or a custom domain).
+function isDashboardHost(env, host) {
+  if (host === appDomainOf(env) || host === "localhost" || host === "127.0.0.1" || host.endsWith(".workers.dev")) return true;
+  for (const o of originsOf(env)) { try { if (new URL(o).hostname === host) return true; } catch {} }
+  return String(env.DASHBOARD_HOSTS || "").split(",").some((h) => h.trim().toLowerCase() === host);
 }
 
-async function handleApi(request, env, url) {
-  const cors = corsHeaders(request);
+// ---------------------------------------------------------------- settings from KV (fallback: env vars)
+const _kv = new Map();
+async function setting(env, name) {
+  if (env[name]) return String(env[name]);
+  const hit = _kv.get(name);
+  if (hit && Date.now() - hit.t < 60000) return hit.v;
+  const v = env.KV ? await env.KV.get(name) : null;
+  _kv.set(name, { v: v ? String(v) : "", t: Date.now() });
+  return v ? String(v) : "";
+}
+
+// ---------------------------------------------------------------- secrets
+// Passwords are random, so a keyed hash is enough to verify them. An encrypted copy is kept so the
+// same password can be shown again on every login (they are NOT regenerated any more).
+let _keys = null;
+async function keys(env) {
+  if (_keys) return _keys;
+  const secret = await setting(env, "DATA_SECRET");
+  if (!secret) throw new HttpError(500, "DATA_SECRET is not set (KV key or env var)");
+  const d = async (label) => crypto.subtle.digest("SHA-256", enc.encode(label + "|" + secret));
+  _keys = {
+    hmac: await crypto.subtle.importKey("raw", await d("hmac"), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]),
+    aes: await crypto.subtle.importKey("raw", await d("aes"), "AES-GCM", false, ["encrypt", "decrypt"]),
+  };
+  return _keys;
+}
+const toHex = (u8) => [...u8].map((b) => b.toString(16).padStart(2, "0")).join("");
+const newSecret = () => bytesToB64(crypto.getRandomValues(new Uint8Array(12))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+async function hashSecret(env, s) {
+  const k = await keys(env);
+  return toHex(new Uint8Array(await crypto.subtle.sign("HMAC", k.hmac, enc.encode(String(s)))));
+}
+async function lockSecret(env, s) {
+  const k = await keys(env), iv = crypto.getRandomValues(new Uint8Array(12));
+  const ct = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv }, k.aes, enc.encode(s)));
+  return bytesToB64(iv) + "." + bytesToB64(ct);
+}
+async function unlockSecret(env, v) {
+  if (typeof v !== "string" || !v.includes(".")) return null;
+  try {
+    const k = await keys(env), [a, b] = v.split(".");
+    return dec.decode(await crypto.subtle.decrypt({ name: "AES-GCM", iv: b64ToBytes(a) }, k.aes, b64ToBytes(b)));
+  } catch { return null; }
+}
+function safeEq(a, b) {
+  if (typeof a !== "string" || typeof b !== "string" || a.length !== b.length) return false;
+  let d = 0;
+  for (let i = 0; i < a.length; i++) d |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return d === 0;
+}
+async function sha256hex(s) { return toHex(await sha256(s)); }
+
+// admin key for calls from this worker to the backend (gen1)
+let _ak = { v: null, t: 0 };
+async function getAdminKey(env) {
+  if (_ak.v && Date.now() - _ak.t < 60000) return _ak.v;
+  const v = await env.KV.get("ADMIN_KEY");
+  if (!v) throw new HttpError(500, "ADMIN_KEY is not set in KV");
+  _ak = { v: String(v), t: Date.now() };
+  return _ak.v;
+}
+async function callBackend(env, path, payload, { raw = false, timeout = 120000 } = {}) {
+  const backend = await setting(env, "BACKEND_URL");
+  if (!backend) throw new HttpError(500, "BACKEND_URL is not set (KV key or env var)");
+  const key = await getAdminKey(env);
+  let r;
+  try {
+    r = await fetch(backend.replace(/\/+$/, "") + path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-admin-key": key },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(timeout),
+    });
+  } catch { return { status: 502, data: { success: false, error: "Backend server is unreachable" } }; }
+  if (raw && r.ok) return { status: r.status, response: r };
+  let data;
+  try { data = await r.json(); } catch { data = { success: false, error: "Backend sent an invalid response" }; }
+  if (r.status === 401) return { status: 502, data: { success: false, error: "Backend rejected the request" } };
+  return { status: r.status, data };
+}
+const backendOk = (r) => r.status >= 200 && r.status < 300 && r.data && r.data.success !== false;
+const backendFail = (r) => new HttpError(r.status >= 400 ? r.status : 502, (r.data && r.data.error) || "Backend error");
+
+// ---------------------------------------------------------------- edge cache (Cache API only)
+const CK = (kind, key) => new Request("https://cache.fastsite.internal/" + kind + "/" + encodeURIComponent(key));
+async function cget(kind, key) {
+  try { const r = await caches.default.match(CK(kind, key)); return r ? await r.json() : null; } catch { return null; }
+}
+async function cput(kind, key, val, ttl) {
+  try {
+    await caches.default.put(CK(kind, key), new Response(JSON.stringify(val), {
+      headers: { "Content-Type": "application/json", "Cache-Control": "max-age=" + ttl },
+    }));
+  } catch {}
+}
+const cdel = (kind, key) => caches.default.delete(CK(kind, key)).catch(() => false);
+
+// ---------------------------------------------------------------- app records
+const rowToApp = (r) => ({
+  id: r.id, name: r.name, owner: r.owner, plan: r.plan || "Free", createdAt: r.created_at,
+  customDomain: r.custom_domain || undefined,
+  customDomainVerified: r.custom_domain ? r.custom_domain_verified !== 0 : undefined,
+  customDomainVerifiedAt: r.custom_domain_verified_at || undefined,
+  dailyBackup: r.daily_backup === 1,
+  lastAutoBackup: r.last_auto_backup || null,
+  cache: parseJson(r.cache, null),
+});
+function publicApp(record) {
+  return {
+    id: record.id, name: record.name, createdAt: record.createdAt, plan: record.plan || "Free",
+    customDomain: record.customDomain || null,
+    customDomainVerified: record.customDomain ? record.customDomainVerified !== false : null,
+    dailyBackup: record.dailyBackup === true,
+  };
+}
+function publicAccount(r) {
+  return { discordId: r.discord_id, username: r.username, email: r.email, imgUrl: r.img_url, credits: Number(r.credits) || 0, ip: r.ip, createdAt: r.created_at, lastLogin: r.last_login };
+}
+function avatarUrl(user) {
+  if (user.avatar) return `https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}.${user.avatar.startsWith("a_") ? "gif" : "png"}?size=256`;
+  return `https://cdn.discordapp.com/embed/avatars/${Number((BigInt(user.id) >> 22n) % 6n)}.png`;
+}
+
+// full record + purge state (what page serving and the cache API need)
+async function loadAppFull(env, where, bind) {
+  const r = await env.INFO.prepare(
+    `SELECT a.*, s.state AS cstate FROM apps a LEFT JOIN cache_state s ON s.app_id = a.id WHERE ${where}`
+  ).bind(bind).first();
+  if (!r) return null;
+  const rec = rowToApp(r), st = parseJson(r.cstate, {});
+  rec.cs = { all: st.all || 0, purges: st.purges || [], lastPurge: st.lastPurge || 0 };
+  return rec;
+}
+const hostsOf = (env, rec) => {
+  const l = [rec.name.toLowerCase() + "." + appDomainOf(env)];
+  if (rec.customDomain && rec.customDomainVerified !== false) l.push(rec.customDomain);
+  return l;
+};
+const putHostEntries = (env, rec) => Promise.all(hostsOf(env, rec).map((h) => cput("host", h, rec, HOST_TTL)));
+const refreshHost = async (env, appId) => { const rec = await loadAppFull(env, "a.id = ?1", appId); if (rec) await putHostEntries(env, rec); return rec; };
+
+// ---- auth data cache: username -> [{ discordId, hash, apps:[{..., hash}] }]
+async function loadAccounts(env, username) {
+  const { results: accs } = await env.INFO.prepare("SELECT discord_id, pw_hash FROM accounts WHERE username = ?1").bind(username).all();
+  const out = [];
+  for (const a of accs) {
+    const { results } = await env.INFO.prepare("SELECT * FROM apps WHERE owner = ?1 ORDER BY created_at").bind(a.discord_id).all();
+    out.push({ discordId: a.discord_id, hash: a.pw_hash, apps: results.map((r) => ({ ...rowToApp(r), cache: undefined, hash: r.pw_hash })) });
+  }
+  return out;
+}
+async function refreshAuth(env, username) {
+  await cdel("acct", username);
+  const list = await loadAccounts(env, username);
+  if (list.length) await cput("acct", username, list, AUTH_TTL);
+}
+// something about an app changed: drop the stale entries, add the new ones
+async function bustApp(env, ownerId, delHosts, putAppId) {
+  const acc = await env.INFO.prepare("SELECT username FROM accounts WHERE discord_id = ?1").bind(ownerId).first();
+  if (acc) await refreshAuth(env, acc.username);
+  await Promise.all(delHosts.filter(Boolean).map((h) => cdel("host", h)));
+  if (putAppId) await refreshHost(env, putAppId);
+}
+
+async function authenticate(env, ctx, username, password) {
+  if (typeof username !== "string" || typeof password !== "string" || !username || !password || username.length > 100 || password.length > 200) return null;
+  let list = await cget("acct", username);
+  if (!list) {
+    list = await loadAccounts(env, username);
+    if (list.length) ctx.waitUntil(cput("acct", username, list, AUTH_TTL));
+  }
+  if (!list.length) return null;
+  const h = await hashSecret(env, password);
+  const hit = list.find((a) => safeEq(a.hash, h));
+  return hit ? { discordId: hit.discordId, username, apps: hit.apps, count: hit.apps.length } : null;
+}
+async function authOwner(env, ctx, b) {
+  const owner = await authenticate(env, ctx, b.username, b.password);
+  if (!owner) throw new HttpError(401, "Invalid username or password");
+  return owner;
+}
+async function authApp(env, ctx, b) {
+  const owner = await authOwner(env, ctx, b);
+  if (typeof b.appId !== "string" || !b.appId || typeof b.appPassword !== "string" || !b.appPassword) {
+    throw new HttpError(400, "appId and appPassword are required");
+  }
+  const record = owner.apps.find((a) => a.id === b.appId);
+  if (!record) throw new HttpError(404, "App not found");
+  if (!safeEq(record.hash, await hashSecret(env, b.appPassword))) throw new HttpError(401, "Invalid app password");
+  return { owner, record };
+}
+
+// ---------------------------------------------------------------- domains
+function normalizeDomain(input) {
+  if (typeof input !== "string") return null;
+  let d = input.trim().toLowerCase().replace(/\.$/, "");
+  if (!d || d.length > 253 || /[\/\s:@?#]/.test(d)) return null;
+  try { d = new URL("http://" + d).hostname; } catch { return null; }
+  const labels = d.split(".");
+  if (labels.length < 2) return null;
+  if (!labels.every((l) => /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/.test(l))) return null;
+  if (!/^(xn--[a-z0-9-]+|[a-z]{2,63})$/.test(labels[labels.length - 1])) return null;
+  return d;
+}
+// the DNS check runs on the backend (gen1) only
+async function dnsCheck(env, domain, expected) {
+  const r = await callBackend(env, "/api/dns/check", { domain, expected }, { timeout: 15000 });
+  if (!backendOk(r)) throw new Error("dns unavailable");
+  return { ok: r.data.ok === true, found: r.data.found || null };
+}
+async function recheckDomain(env, rec) {
+  const domain = rec.customDomain, expected = rec.name + "." + appDomainOf(env);
+  let status, found = null;
+  try { const c = await dnsCheck(env, domain, expected); found = c.found; status = c.ok ? "verified" : "not_pointing"; }
+  catch { status = "unchecked"; }
+  const cur = await loadAppFull(env, "a.id = ?1", rec.id);
+  if (cur && cur.name === rec.name && cur.customDomain === domain) {
+    await env.INFO.prepare("UPDATE apps SET custom_domain_verified = ?1, custom_domain_verified_at = COALESCE(?2, custom_domain_verified_at) WHERE id = ?3")
+      .bind(status === "verified" ? 1 : 0, status === "verified" ? nowIso() : null, rec.id).run();
+  }
+  const message =
+    status === "verified" ? "The CNAME of " + domain + " points to " + expected + ", so the domain keeps working."
+    : status === "unchecked" ? "Couldn't check DNS right now. Set the domain again later to verify it."
+    : (found ? "The CNAME of " + domain + " still points to " + found + ". Change it to point to " + expected
+             : "No CNAME record found for " + domain + ". Add one that points to " + expected) + ", then set the domain again to verify it.";
+  return { name: domain, status, expected, found, message };
+}
+
+// ---------------------------------------------------------------- user API
+const USER = {};
+const bodyStr = (v) => (typeof v === "string" ? v.trim() : "");
+
+USER["/api/discord-signup"] = async ({ request, env, ctx, body, url }) => {
+  const code = url.searchParams.get("code") || body.code;
+  if (!code) throw new HttpError(400, "Missing code");
+  const [dId, dSecret, dRedirect] = await Promise.all(["DISCORD_CLIENT_ID", "DISCORD_CLIENT_SECRET", "DISCORD_REDIRECT_URI"].map((k) => setting(env, k)));
+  if (!dId || !dSecret || !dRedirect) throw new HttpError(500, "Discord login is not configured");
+
+  const tr = await fetch("https://discord.com/api/oauth2/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ client_id: dId, client_secret: dSecret, grant_type: "authorization_code", code, redirect_uri: dRedirect }),
+  });
+  if (!tr.ok) throw new HttpError(400, "Invalid or expired code");
+  const token = await tr.json();
+  const ur = await fetch("https://discord.com/api/users/@me", { headers: { Authorization: "Bearer " + token.access_token } });
+  if (!ur.ok) throw new HttpError(502, "Could not fetch Discord user");
+  const user = await ur.json();
+  if (!user.email) throw new HttpError(400, "Discord account has no email. Request the email scope.");
+
+  const db = env.INFO, now = nowIso(), img = avatarUrl(user);
+  const row = await db.prepare("SELECT * FROM accounts WHERE discord_id = ?1").bind(user.id).first();
+  let created = false, plain, account, apps = [];
+
+  if (row) {
+    // same password and app passwords on every login; only made once if they are missing
+    plain = await unlockSecret(env, row.pw_enc);
+    const stmts = [];
+    if (!plain || !row.pw_hash) {
+      plain = newSecret();
+      stmts.push(db.prepare("UPDATE accounts SET pw_hash = ?1, pw_enc = ?2 WHERE discord_id = ?3").bind(await hashSecret(env, plain), await lockSecret(env, plain), user.id));
+    }
+    stmts.push(db.prepare("UPDATE accounts SET img_url = ?1, last_login = ?2 WHERE discord_id = ?3").bind(img, now, user.id));
+    const { results } = await db.prepare("SELECT * FROM apps WHERE owner = ?1 ORDER BY created_at").bind(user.id).all();
+    for (const a of results) {
+      let ap = await unlockSecret(env, a.pw_enc);
+      if (!ap || !a.pw_hash) {
+        ap = newSecret();
+        stmts.push(db.prepare("UPDATE apps SET pw_hash = ?1, pw_enc = ?2 WHERE id = ?3").bind(await hashSecret(env, ap), await lockSecret(env, ap), a.id));
+      }
+      apps.push({ ...publicApp(rowToApp(a)), appPassword: ap });
+    }
+    await db.batch(stmts);
+    account = publicAccount({ ...row, img_url: img, last_login: now });
+  } else {
+    created = true;
+    plain = newSecret();
+    const r = { discord_id: user.id, username: user.global_name || user.username, email: user.email, img_url: img, credits: 0, ip: request.headers.get("CF-Connecting-IP"), created_at: now, last_login: now };
+    await db.prepare("INSERT INTO accounts (discord_id, username, email, img_url, pw_hash, pw_enc, credits, ip, created_at, last_login) VALUES (?1,?2,?3,?4,?5,?6,0,?7,?8,?8)")
+      .bind(r.discord_id, r.username, r.email, r.img_url, await hashSecret(env, plain), await lockSecret(env, plain), r.ip, now).run();
+    account = publicAccount(r);
+  }
+  await refreshAuth(env, account.username); // (re)fill the cache with the current data
+  return json({ success: true, created, account, password: plain, apps });
+};
+
+// Body: { username, password, appName, plan? }
+USER["/api/apps/create"] = async ({ env, ctx, body }) => {
+  const owner = await authOwner(env, ctx, body);
+  const planKey = typeof body.plan === "string" ? body.plan.trim().toLowerCase() : "";
+  const planInfo = planKey && planKey !== "free" ? PLANS[planKey] : null;
+  if (planKey && planKey !== "free" && !planInfo) {
+    throw new HttpError(400, "Unknown plan. Use " + Object.values(PLANS).map((p) => p.name + " (" + p.price + " credits)").join(", ") + ", or leave it out for a free app");
+  }
+  const name = bodyStr(body.appName);
+  if (!APP_NAME_RE.test(name)) throw new HttpError(400, NAME_RULE);
+
+  if (owner.count >= MAX_APPS_PER_USER) throw new HttpError(403, `You can create at most ${MAX_APPS_PER_USER} apps`);
+  if (!planInfo && owner.apps.filter((a) => (a.plan || "Free") === "Free").length >= MAX_FREE_APPS_PER_USER) {
+    throw new HttpError(403, `You can only have ${MAX_FREE_APPS_PER_USER} free app. Choose a paid plan for this one`);
+  }
+  const db = env.INFO;
+  if (await db.prepare("SELECT 1 AS x FROM apps WHERE name = ?1").bind(name).first()) throw new HttpError(409, "App name is already taken");
+
+  let credits;
+  if (planInfo) { // take the credits atomically
+    const r = await db.prepare("UPDATE accounts SET credits = credits - ?1 WHERE discord_id = ?2 AND credits >= ?1").bind(planInfo.price, owner.discordId).run();
+    if (!r.meta.changes) {
+      const a = await db.prepare("SELECT credits FROM accounts WHERE discord_id = ?1").bind(owner.discordId).first();
+      throw new HttpError(402, `The ${planInfo.name} plan costs ${planInfo.price} credits and you have ${a ? Number(a.credits) || 0 : 0}`);
+    }
+  }
+  const id = toHex(crypto.getRandomValues(new Uint8Array(6)));
+  const appPassword = newSecret();
+  try {
+    await db.prepare("INSERT INTO apps (id, name, owner, pw_hash, pw_enc, plan, created_at, cache) VALUES (?1,?2,?3,?4,?5,?6,?7,?8)")
+      .bind(id, name, owner.discordId, await hashSecret(env, appPassword), await lockSecret(env, appPassword), planInfo ? planInfo.name : "Free", nowIso(), JSON.stringify(defaultCacheConfig(planInfo ? 1 : 0))).run();
+  } catch {
+    if (planInfo) await db.prepare("UPDATE accounts SET credits = credits + ?1 WHERE discord_id = ?2").bind(planInfo.price, owner.discordId).run();
+    throw new HttpError(409, "App name is already taken");
+  }
+  if (planInfo) { const a = await db.prepare("SELECT credits FROM accounts WHERE discord_id = ?1").bind(owner.discordId).first(); credits = Number(a.credits) || 0; }
+  await bustApp(env, owner.discordId, [], id); // new app goes into the cache
+  const rec = await loadAppFull(env, "a.id = ?1", id);
+  const out = { success: true, app: publicApp(rec), appPassword };
+  if (credits !== undefined) out.credits = credits;
+  return json(out, 201);
+};
+
+USER["/api/apps/list"] = async ({ env, ctx, body }) => {
+  const owner = await authOwner(env, ctx, body);
+  const a = await env.INFO.prepare("SELECT credits FROM accounts WHERE discord_id = ?1").bind(owner.discordId).first();
+  return json({
+    success: true, count: owner.count, max: MAX_APPS_PER_USER, credits: a ? Number(a.credits) || 0 : 0,
+    freeUsed: owner.apps.filter((x) => (x.plan || "Free") === "Free").length, maxFree: MAX_FREE_APPS_PER_USER,
+    plans: Object.values(PLANS).map((p) => ({ name: p.name, price: p.price, backups: p.backups })),
+    apps: owner.apps.map((x) => ({ ...publicApp(x), backupLimit: backupLimit(x) })),
+  });
+};
+
+// { username, password, appId, appPassword, newName }  (files are stored by app id, nothing moves)
+USER["/api/apps/rename"] = async ({ env, ctx, body }) => {
+  const { owner, record: current } = await authApp(env, ctx, body);
+  const name = bodyStr(body.newName);
+  if (!APP_NAME_RE.test(name)) throw new HttpError(400, NAME_RULE);
+  if (current.name === name) throw new HttpError(400, "That is already the app's name");
+  const taken = await env.INFO.prepare("SELECT id FROM apps WHERE name = ?1 AND id != ?2").bind(name, current.id).first();
+  if (taken) throw new HttpError(409, "App name is already taken");
+  const oldHost = current.name.toLowerCase() + "." + appDomainOf(env);
+  try { await env.INFO.prepare("UPDATE apps SET name = ?1 WHERE id = ?2").bind(name, current.id).run(); }
+  catch { throw new HttpError(409, "App name is already taken"); }
+
+  let rec = await loadAppFull(env, "a.id = ?1", current.id);
+  const out = { success: true };
+  if (rec.customDomain) out.domain = await recheckDomain(env, rec);
+  // old name and the custom domain leave the cache, the new ones go in
+  await bustApp(env, owner.discordId, [oldHost, rec.customDomain], current.id);
+  rec = await loadAppFull(env, "a.id = ?1", current.id);
+  out.app = publicApp(rec);
+  return json(out);
+};
+
+// { ..., domain } or { ..., remove: true }
+USER["/api/apps/domain"] = async ({ env, ctx, body }) => {
+  const { owner, record: current } = await authApp(env, ctx, body);
+  const db = env.INFO;
+  const before = await loadAppFull(env, "a.id = ?1", current.id);
+  if (body.remove === true) {
+    await db.prepare("UPDATE apps SET custom_domain = NULL, custom_domain_verified = NULL, custom_domain_verified_at = NULL WHERE id = ?1").bind(current.id).run();
+    await bustApp(env, owner.discordId, [before.customDomain], null);
+    return json({ success: true, app: publicApp(await loadAppFull(env, "a.id = ?1", current.id)) });
+  }
+  const d = normalizeDomain(body.domain);
+  if (!d) throw new HttpError(400, "Enter a valid domain, for example www.example.com");
+  const ad = appDomainOf(env);
+  if (d === ad || d.endsWith("." + ad)) throw new HttpError(400, "You can't use a " + ad + " address as a custom domain");
+
+  const expected = before.name + "." + ad;
+  let check;
+  try { check = await dnsCheck(env, d, expected); }
+  catch { throw new HttpError(502, "Couldn't check DNS right now. Try again in a minute."); }
+  if (!check.ok) {
+    return json({
+      success: false,
+      error: check.found ? "The CNAME of " + d + " points to " + check.found + ", but it must point to " + expected : "No CNAME record found for " + d + ". Add a CNAME record that points to " + expected,
+      expected, found: check.found,
+    }, 400);
+  }
+  const now = await loadAppFull(env, "a.id = ?1", current.id);
+  if (!now) throw new HttpError(404, "App not found");
+  if (now.name !== before.name) throw new HttpError(409, "The app was renamed while checking. Try again.");
+  if (await db.prepare("SELECT 1 AS x FROM apps WHERE custom_domain = ?1 AND id != ?2").bind(d, current.id).first()) throw new HttpError(409, "That domain is already used by another app");
+  try {
+    await db.prepare("UPDATE apps SET custom_domain = ?1, custom_domain_verified = 1, custom_domain_verified_at = ?2 WHERE id = ?3").bind(d, nowIso(), current.id).run();
+  } catch { throw new HttpError(409, "That domain is already used by another app"); }
+  await bustApp(env, owner.discordId, [before.customDomain, d], current.id);
+  return json({ success: true, app: publicApp(await loadAppFull(env, "a.id = ?1", current.id)) });
+};
+
+USER["/api/apps/delete"] = async ({ env, ctx, body }) => {
+  const { owner, record } = await authApp(env, ctx, body);
+  const full = await loadAppFull(env, "a.id = ?1", record.id);
+  if (!full) throw new HttpError(404, "App not found");
+
+  // 1) backups live on the backend: delete them all first
+  let backupsDeleted = 0;
+  if (isPremium(full)) {
+    const r = await callBackend(env, "/api/backups/delete-all", { appId: full.id });
+    if (!backendOk(r) && r.status !== 404) throw backendFail(r);
+    backupsDeleted = (r.data && r.data.deleted) || 0;
+  }
+  // 2) every file of the app
+  const f = await (await ROUTES["/api/files/delete-all"]({ env, body: { appId: full.id } })).json();
+  // 3) the app itself, its stats and counters (this frees its name and custom domain)
+  const db = env.INFO, id = full.id;
+  await db.batch([
+    db.prepare("DELETE FROM apps WHERE id = ?1").bind(id),
+    ...["cache_state", "cache_stats", "app_stats", "day_stats", "seen_all", "seen_day", "visits", "request_counts"]
+      .map((t) => db.prepare(`DELETE FROM ${t} WHERE app_id = ?1`).bind(id)),
+  ]);
+  RC.delete(id);
+  // 4) gone from the cache: login data, subdomain and custom domain
+  await bustApp(env, owner.discordId, hostsOf(env, full), null);
+  return json({ success: true, deleted: { appId: id, name: full.name, files: f.files, bytes: f.bytes, backups: backupsDeleted } });
+};
+
+// ---------------------------------------------------------------- file manager (/api/fs)
+const FS_OPS = {
+  write: ["path", "content", "encoding"], read: ["path", "encoding"], list: ["path"], delete: ["path"],
+  rename: ["path", "newName"], move: ["from", "to", "overwrite"], mkdir: ["path"],
+  extract: ["path", "to", "deleteArchive"], upload: ["path", "extract"], usage: [],
+};
+const IMAGE_EXTS = new Set(["png", "jpg", "jpeg", "gif", "webp", "avif", "ico", "bmp", "svg"]);
+const extOf = (name) => { const n = String(name || ""); const i = n.lastIndexOf("."); return i < 0 || n.lastIndexOf("/") > i ? "" : n.slice(i + 1).toLowerCase(); };
+const kindFromExt = (e) => (e === "jpg" ? "jpeg" : e);
+function imageKind(b) {
+  const at = (i) => b[i];
+  const s = (a, z) => String.fromCharCode(...b.subarray(a, Math.min(z, b.length)));
+  if (b.length >= 8 && [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a].every((v, i) => at(i) === v)) return "png";
+  if (b.length >= 3 && at(0) === 0xff && at(1) === 0xd8 && at(2) === 0xff) return "jpeg";
+  const a = s(0, 12);
+  if (a.startsWith("GIF87a") || a.startsWith("GIF89a")) return "gif";
+  if (a.startsWith("RIFF") && a.slice(8, 12) === "WEBP") return "webp";
+  if (a.slice(4, 8) === "ftyp" && /^(avif|avis)/.test(s(8, 12))) return "avif";
+  if (b.length >= 4 && at(0) === 0 && at(1) === 0 && at(2) === 1 && at(3) === 0) return "ico";
+  if (a.startsWith("BM")) return "bmp";
+  if (dec.decode(b.subarray(0, 2048)).toLowerCase().includes("<svg")) return "svg";
+  return null;
+}
+const CHANGING_OPS = ["write", "delete", "rename", "move", "extract", "upload"];
+
+{
+  USER["/api/fs"] = async ({ request, env, ctx, body }) => {
+    const isForm = /multipart\/form-data/i.test(request.headers.get("content-type") || "");
+    let form = null, b = body;
+    if (isForm) {
+      if (Number(request.headers.get("content-length")) > MAX_UPLOAD_BYTES) throw new HttpError(413, "File is too large");
+      try { form = await request.formData(); } catch { throw new HttpError(400, "Invalid upload"); }
+      b = Object.fromEntries([...form.entries()].filter(([, v]) => typeof v === "string"));
+    }
+    const spec = FS_OPS[b.op];
+    if (!spec) throw new HttpError(400, "Unknown op. Use one of: " + Object.keys(FS_OPS).join(", "));
+    const { record } = await authApp(env, ctx, b);
+
+    let res;
+    if (b.op === "upload") {
+      if (!form) throw new HttpError(400, "Send the upload as multipart/form-data");
+      const files = form.getAll("file").filter((f) => typeof f !== "string");
+      if (!files.length) throw new HttpError(400, 'No file received (send it in the "file" field)');
+      for (const f of files) {
+        const ext = extOf(f.name);
+        if (!IMAGE_EXTS.has(ext)) continue;
+        const head = new Uint8Array(await f.slice(0, 2100).arrayBuffer());
+        if (imageKind(head) !== kindFromExt(ext)) throw new HttpError(400, `"${f.name}" is not a valid .${ext} image`);
+      }
+      form.set("appId", record.id);
+      form.set("path", b.path || ""); form.set("extract", b.extract || "");
+      res = await uploadRoute({ request, env, form, appIdOverride: record.id });
+    } else {
+      if (b.op === "write" && b.encoding === "base64") {
+        const ext = extOf(b.path !== undefined ? b.path : b.fileName);
+        if (IMAGE_EXTS.has(ext)) {
+          let head = new Uint8Array(0);
+          const sample = String(b.content || "").slice(0, 2800);
+          try { head = b64ToBytes(sample.slice(0, sample.length - (sample.length % 4))); } catch {}
+          if (imageKind(head) !== kindFromExt(ext)) throw new HttpError(400, `The content is not a valid .${ext} image`);
+        }
+      }
+      const payload = { appId: record.id };
+      for (const k of spec) if (b[k] !== undefined) payload[k] = b[k];
+      if (payload.path === undefined && b.fileName !== undefined) payload.path = b.fileName;
+      res = await ROUTES["/api/files/" + b.op]({ env, body: payload });
+    }
+    if (res.status < 300 && CHANGING_OPS.includes(b.op)) ctx.waitUntil(autoPurge(env, record.id));
+    return res;
+  };
+}
+
+ROUTES["/api/files/usage"] = async ({ env, body }) => {
+  checkAppId(body.appId);
+  const r = await env.DB.prepare(
+    "SELECT COUNT(*) AS files, COALESCE(SUM(json_extract(info, '$.size')), 0) AS bytes FROM app_files WHERE appid = ?1 AND json_extract(info, '$.type') = 'file'"
+  ).bind(body.appId).first();
+  return ok({ files: r.files, used: r.bytes, bytes: r.bytes, limit: MAX_APP_BYTES });
+};
+// every file + folder of an app (the backend uses it to build backups)
+ROUTES["/api/files/tree"] = async ({ env, body }) => {
+  checkAppId(body.appId);
+  const { results } = await env.DB.prepare("SELECT file_path, info FROM app_files WHERE appid = ?1 AND instr(file_path, char(31)) = 0").bind(body.appId).all();
+  const files = [], dirs = [];
+  for (const r of results) { const i = parseInfo(r.info); if (i.type === "dir") dirs.push(r.file_path); else files.push({ path: r.file_path, size: i.size || 0 }); }
+  return ok({ files, dirs });
+};
+
+// ---------------------------------------------------------------- backups (files stay on the backend)
+USER["/api/backups/create"] = async ({ env, ctx, body }) => {
+  const { record } = await authApp(env, ctx, body);
+  if (!isPremium(record)) throw new HttpError(403, "Backups are only available on paid plans");
+  const limit = backupLimit(record);
+  const ex = await callBackend(env, "/api/backups/info", { appId: record.id });
+  if (!backendOk(ex)) throw backendFail(ex);
+  if ((ex.data.backups || []).length >= limit) {
+    throw new HttpError(409, `Your ${record.plan} plan allows ${limit} backups and you already have ${limit}. Delete one first or upgrade your plan`);
+  }
+  const payload = { appId: record.id, maxBackups: limit };
+  if (body.format !== undefined) payload.format = body.format;
+  const r = await callBackend(env, "/api/backups/create", payload, { timeout: 280000 });
+  return json(r.data, r.status);
+};
+USER["/api/backups/list"] = async ({ env, ctx, body }) => {
+  const { record } = await authApp(env, ctx, body);
+  const r = await callBackend(env, "/api/backups/info", { appId: record.id });
+  if (r.data && r.data.success !== false) { r.data.max = backupLimit(record); r.data.dailyBackup = record.dailyBackup === true; }
+  return json(r.data, r.status);
+};
+const backupIdRoute = (path, timeout) => async ({ env, ctx, body }) => {
+  const { record } = await authApp(env, ctx, body);
+  if (typeof body.backupId !== "string" || !body.backupId) throw new HttpError(400, "backupId is required");
+  const r = await callBackend(env, path, { appId: record.id, backupId: body.backupId, plan: record.plan || "Free" }, { timeout });
+  if (path === "/api/backups/restore" && r.status < 300) await autoPurge(env, record.id);
+  return json(r.data, r.status);
+};
+USER["/api/backups/delete"] = backupIdRoute("/api/backups/delete");
+USER["/api/backups/info"] = backupIdRoute("/api/backups/info");
+USER["/api/backups/restore"] = backupIdRoute("/api/backups/restore", 290000);
+USER["/api/backups/download"] = async ({ env, ctx, body }) => {
+  const { record } = await authApp(env, ctx, body);
+  if (typeof body.backupId !== "string" || !body.backupId) throw new HttpError(400, "backupId is required");
+  const r = await callBackend(env, "/api/backups/download", { appId: record.id, backupId: body.backupId }, { raw: true, timeout: 290000 });
+  if (!r.response) return json(r.data, r.status);
+  const h = new Headers({ "Content-Type": r.response.headers.get("content-type") || "application/octet-stream", "Cache-Control": "no-store" });
+  for (const k of ["content-disposition", "content-length"]) if (r.response.headers.get(k)) h.set(k, r.response.headers.get(k));
+  return new Response(r.response.body, { headers: h });
+};
+USER["/api/backups/auto"] = async ({ env, ctx, body }) => {
+  const { owner, record } = await authApp(env, ctx, body);
+  const status = (rec) => ({ success: true, enabled: rec.dailyBackup === true, lastBackup: rec.lastAutoBackup || null, max: backupLimit(rec) });
+  let en = body.enabled;
+  const cur = await loadAppFull(env, "a.id = ?1", record.id);
+  if (en === undefined) return json(status(cur));
+  if (en === "true") en = true;
+  if (en === "false") en = false;
+  if (typeof en !== "boolean") throw new HttpError(400, "enabled must be true or false");
+  if (en && !isPremium(cur)) throw new HttpError(403, "Daily backups are only available on paid plans");
+  await env.INFO.prepare("UPDATE apps SET daily_backup = ?1 WHERE id = ?2").bind(en ? 1 : 0, cur.id).run();
+  await bustApp(env, owner.discordId, [], cur.id);
+  return json(status(await loadAppFull(env, "a.id = ?1", cur.id)));
+};
+
+// calls from the backend (admin key): which apps need a daily backup, and mark it done
+ROUTES["/api/admin/apps/due-backup"] = async ({ env, body }) => {
+  const today = typeof body.today === "string" ? body.today : todayKey();
+  const { results } = await env.INFO.prepare(
+    "SELECT id, name, plan FROM apps WHERE daily_backup = 1 AND plan != 'Free' AND (last_auto_backup IS NULL OR last_auto_backup != ?1)"
+  ).bind(today).all();
+  return ok({ apps: results.map((a) => ({ ...a, limit: backupLimit(a) })) });
+};
+ROUTES["/api/admin/apps/backup-done"] = async ({ env, body }) => {
+  checkAppId(body.appId);
+  await env.INFO.prepare("UPDATE apps SET last_auto_backup = ?1 WHERE id = ?2").bind(String(body.day || todayKey()), body.appId).run();
+  return ok();
+};
+
+// ---------------------------------------------------------------- cache settings, rules, purge
+const TIER_LABEL = ["Free", "any paid plan", "Pro or Enterprise", "Enterprise"];
+const CACHE_LIMITS = [
+  { rules: 3,   maxTtl: 86400,    purgesPerDay: 5 },
+  { rules: 20,  maxTtl: 31536000, purgesPerDay: 200 },
+  { rules: 100, maxTtl: 31536000, purgesPerDay: 1000 },
+  { rules: 500, maxTtl: 31536000, purgesPerDay: Infinity },
+];
+const cacheTier = (rec) => { const p = String(rec.plan || "").toLowerCase(); return p === "enterprise" ? 3 : p === "pro" ? 2 : PLANS[p] ? 1 : 0; };
+function defaultCacheConfig(tier = 0) {
+  return {
+    enabled: true, edgeCache: false, browserTtl: 60, edgeTtl: 60, mediaBrowserTtl: 86400, mediaEdgeTtl: 86400,
+    autoPurgeOnDeploy: true, debugHeader: false, etag: tier >= 1, deviceCache: false, staleWhileRevalidate: 0,
+    staleIfError: 0, immutableMedia: false, cacheByCountry: false, smartTtl: false, purgeEveryHours: 0, purgeWebhook: null, rules: [],
+  };
+}
+const getCacheConfig = (rec) => {
+  const c = { ...defaultCacheConfig(cacheTier(rec)), ...(rec.cache || {}) };
+  c.rules = Array.isArray(c.rules) ? c.rules : [];
+  return c;
+};
+const SETTING_SPEC = {
+  edgeCache: { t: "bool", tier: 0 },
+  browserTtl: { t: "ttl", tier: 0 }, edgeTtl: { t: "ttl", tier: 0 },
+  mediaBrowserTtl: { t: "ttl", tier: 0 }, mediaEdgeTtl: { t: "ttl", tier: 0 },
+  autoPurgeOnDeploy: { t: "bool", tier: 0 }, debugHeader: { t: "bool", tier: 0 },
+  etag: { t: "bool", tier: 1 }, deviceCache: { t: "bool", tier: 1 },
+  staleWhileRevalidate: { t: "ttl", tier: 1 }, staleIfError: { t: "ttl", tier: 1 },
+  immutableMedia: { t: "bool", tier: 2 }, cacheByCountry: { t: "bool", tier: 2 },
+  smartTtl: { t: "bool", tier: 3 }, purgeEveryHours: { t: "hours", tier: 3 }, purgeWebhook: { t: "url", tier: 3 },
+};
+function parseTtl(v, tier, what) {
+  const n = typeof v === "string" && v.trim() !== "" ? Number(v) : v;
+  if (!Number.isInteger(n) || n < 0) throw new HttpError(400, `${what} must be a whole number of seconds (0 or more)`);
+  const max = CACHE_LIMITS[tier].maxTtl;
+  if (n > max) throw new HttpError(400, `${what} can be at most ${max} seconds on your plan`);
+  return n;
+}
+function parseBool(v, what) {
+  if (v === "true") v = true;
+  if (v === "false") v = false;
+  if (typeof v !== "boolean") throw new HttpError(400, `${what} must be true or false`);
+  return v;
+}
+function parseWebhook(v) {
+  if (v === null || v === "") return null;
+  let u;
+  try { u = new URL(String(v)); } catch { throw new HttpError(400, "purgeWebhook must be a valid https URL"); }
+  const h = u.hostname.toLowerCase();
+  if (u.protocol !== "https:" || String(v).length > 300 || /^[\d.]+$/.test(h) || h.includes(":") || h === "localhost" || /\.(local|internal|localhost)$/.test(h)) {
+    throw new HttpError(400, "purgeWebhook must be a public https URL (no IP addresses)");
+  }
+  return u.toString();
+}
+function applySettings(cfg, b, tier) {
+  const changed = [];
+  for (const [key, spec] of Object.entries(SETTING_SPEC)) {
+    if (b[key] === undefined) continue;
+    if (tier < spec.tier) throw new HttpError(403, `${key} is available on ${TIER_LABEL[spec.tier]} only`);
+    let v;
+    if (spec.t === "ttl") v = parseTtl(b[key], tier, key);
+    else if (spec.t === "bool") v = parseBool(b[key], key);
+    else if (spec.t === "hours") { v = Number(b[key]); if (!Number.isInteger(v) || v < 0 || v > 720) throw new HttpError(400, "purgeEveryHours must be 0-720"); }
+    else v = parseWebhook(b[key]);
+    cfg[key] = v; changed.push(key);
+  }
+  return changed;
+}
+
+const MEDIA_EXTS = new Set([...IMAGE_EXTS, "mp4", "webm", "mov", "mp3", "wav", "ogg", "m4a", "woff", "woff2", "ttf", "otf"]);
+const isMediaFile = (type, name) => /^(image|video|audio|font)\//i.test(type || "") || MEDIA_EXTS.has(extOf(name));
+const normPath = (p) => "/" + String(p || "").split(/[?#]/)[0].replace(/^\/+/, "").toLowerCase();
+const globCache = new Map();
+function globRe(g) {
+  let re = globCache.get(g);
+  if (!re) {
+    const tail = g.endsWith("/*");
+    const core = (tail ? g.slice(0, -2) : g).split("*").map((s) => s.replace(/[.+?^${}()|[\]\\]/g, "\\$&")).join(".*");
+    re = new RegExp("^" + core + (tail ? "(/.*)?" : "") + "$");
+    if (globCache.size > 2000) globCache.clear();
+    globCache.set(g, re);
+  }
+  return re;
+}
+function ruleMatches(r, targets) {
+  if (r.type === "all") return true;
+  if (r.type === "extension") { const set = r.match.split(","); return targets.some((t) => set.includes(extOf(t))); }
+  if (r.type === "file") return targets.includes(r.match);
+  if (r.type === "path") { const re = globRe(r.match); return targets.some((t) => re.test(t)); }
+  return false;
+}
+function parseRule(b, tier) {
+  const type = String(b.type || "").toLowerCase();
+  if (!["all", "extension", "file", "path"].includes(type)) throw new HttpError(400, "type must be all, extension, file or path");
+  let match = "*";
+  if (type === "extension") {
+    const list = (Array.isArray(b.match) ? b.match : String(b.match || "").split(",")).map((s) => String(s).trim().toLowerCase().replace(/^\./, "")).filter(Boolean);
+    if (!list.length || list.length > 30 || !list.every((x) => /^[a-z0-9]{1,10}$/.test(x))) throw new HttpError(400, 'match must be extensions like "css,js,png"');
+    match = [...new Set(list)].join(",");
+  } else if (type === "file" || type === "path") {
+    let m = String(b.match || "").trim().toLowerCase().split(/[?#]/)[0];
+    if (!m || m.length > 200 || m.includes("..")) throw new HttpError(400, "match must be a path like /logo.png or /admin/*");
+    if (!m.startsWith("/")) m = "/" + m;
+    if (type === "file" && m.includes("*")) throw new HttpError(400, 'use type "path" for patterns with *');
+    match = m;
+  }
+  const action = b.action === undefined || b.action === null ? "cache" : String(b.action).toLowerCase();
+  if (!["cache", "bypass"].includes(action)) throw new HttpError(400, "action must be cache or bypass");
+  const ttl = (v, w) => (v === undefined || v === null || v === "" ? null : parseTtl(v, tier, w));
+  return {
+    type, match, action,
+    browserTtl: action === "cache" ? ttl(b.browserTtl, "browserTtl") : null,
+    edgeTtl: action === "cache" ? ttl(b.edgeTtl, "edgeTtl") : null,
+    name: b.name ? String(b.name).slice(0, 60) : null,
+  };
+}
+
+// purge state (tokens, history, schedule) in INFO.cache_state
+const newCs = () => ({ all: 0, purges: [], lastPurge: 0, day: "", n: 0, history: [] });
+async function getCs(env, id) {
+  const r = await env.INFO.prepare("SELECT state FROM cache_state WHERE app_id = ?1").bind(id).first();
+  return { ...newCs(), ...(r ? parseJson(r.state, {}) : {}) };
+}
+const saveCs = (env, id, st) =>
+  env.INFO.prepare("INSERT INTO cache_state (app_id, state, next_purge) VALUES (?1, ?2, ?3) ON CONFLICT(app_id) DO UPDATE SET state = excluded.state, next_purge = excluded.next_purge")
+    .bind(id, JSON.stringify(st), st.nextPurge || null).run();
+
+function purgeToken(rec, urlPath, fileName) {
+  const st = rec.cs;
+  if (!st) return 0;
+  const targets = [normPath(urlPath), normPath(fileName)];
+  let t = st.all || 0;
+  for (const p of st.purges || []) if (p.ts > t && ruleMatches(p, targets)) t = p.ts;
+  return t;
+}
+async function doPurge(env, ctx, rec, spec, by) {
+  const st = await getCs(env, rec.id), ts = Math.max(Date.now(), (st.lastPurge || 0) + 1);
+  if (spec.all) { st.all = ts; st.purges = []; }
+  else {
+    for (const e of spec.entries) st.purges.push({ type: e.type, match: e.match, ts });
+    if (st.purges.length > 50) st.purges.splice(0, st.purges.length - 50);
+  }
+  st.lastPurge = ts;
+  st.history.push({ time: new Date(ts).toISOString(), scope: spec.all ? "all" : spec.entries.map((e) => e.match).join(" ").slice(0, 200), by });
+  if (st.history.length > 20) st.history.shift();
+  await saveCs(env, rec.id, st);
+  await refreshHost(env, rec.id);
+  const hook = getCacheConfig(rec).purgeWebhook;
+  if (hook && cacheTier(rec) >= 3) {
+    const p = fetch(hook, { method: "POST", headers: { "Content-Type": "application/json" }, redirect: "error",
+      body: JSON.stringify({ event: "cache.purge", appId: rec.id, app: rec.name, scope: spec.all ? "all" : "partial", by, time: new Date(ts).toISOString() }),
+      signal: AbortSignal.timeout(5000) }).catch(() => {});
+    if (ctx) ctx.waitUntil(p);
+  }
+  return { ts, st };
+}
+// new deployment / file change: the purge token (so the ETags) change at once
+async function autoPurge(env, appId) {
+  try {
+    const rec = await loadAppFull(env, "a.id = ?1", appId);
+    if (!rec || !getCacheConfig(rec).autoPurgeOnDeploy) return;
+    const st = await getCs(env, appId);
+    st.all = Math.max(Date.now(), (st.lastPurge || 0) + 1); st.purges = []; st.lastPurge = st.all;
+    await saveCs(env, appId, st);
+    await refreshHost(env, appId);
+  } catch (e) { console.error("autoPurge failed:", e && e.message); }
+}
+async function syncSchedule(env, rec, cfg) {
+  const st = await getCs(env, rec.id);
+  if (cacheTier(rec) >= 3 && cfg.purgeEveryHours > 0) {
+    if (st.every !== cfg.purgeEveryHours) { st.every = cfg.purgeEveryHours; st.nextPurge = Date.now() + st.every * 3600000; }
+  } else { delete st.every; delete st.nextPurge; }
+  await saveCs(env, rec.id, st);
+}
+async function mutateCache(env, appId, fn) {
+  const cur = await loadAppFull(env, "a.id = ?1", appId);
+  if (!cur) throw new HttpError(404, "App not found");
+  const cfg = getCacheConfig(cur);
+  const out = fn(cfg, cacheTier(cur), cur);
+  cur.cache = cfg;
+  await env.INFO.prepare("UPDATE apps SET cache = ?1 WHERE id = ?2").bind(JSON.stringify(cfg), appId).run();
+  await putHostEntries(env, cur);
+  return { rec: cur, cfg, out };
+}
+function cacheView(rec, cfg, st) {
+  const tier = cacheTier(rec), lim = CACHE_LIMITS[tier], today = todayKey();
+  const { rules, ...settings } = cfg;
+  const features = {};
+  for (const [k, s] of Object.entries(SETTING_SPEC)) features[k] = { available: tier >= s.tier, requires: TIER_LABEL[s.tier] };
+  features.selectivePurge = { available: tier >= 1, requires: TIER_LABEL[1] };
+  features.cacheStats = { available: tier >= 3, requires: TIER_LABEL[3] };
+  return {
+    success: true, plan: rec.plan || "Free",
+    limits: { rules: lim.rules, maxTtl: lim.maxTtl, purgesPerDay: lim.purgesPerDay === Infinity ? null : lim.purgesPerDay },
+    settings, rules, features,
+    lastPurge: st.lastPurge ? new Date(st.lastPurge).toISOString() : null,
+    purgesToday: st.day === today ? st.n : 0,
+    purgeHistory: tier >= 1 ? st.history.slice().reverse() : undefined,
+  };
+}
+const cacheRoute = (fn) => async (c) => {
+  const { record } = await authApp(c.env, c.ctx, c.body);
+  const rec = await loadAppFull(c.env, "a.id = ?1", record.id);
+  if (!rec) throw new HttpError(404, "App not found");
+  return fn(rec, c.body, c);
+};
+USER["/api/cache/get"] = cacheRoute(async (rec, b, { env }) => json(cacheView(rec, getCacheConfig(rec), await getCs(env, rec.id))));
+USER["/api/cache/settings"] = cacheRoute(async (rec, b, { env }) => {
+  const { rec: cur, cfg, out } = await mutateCache(env, rec.id, (cfg, tier) => {
+    const changed = applySettings(cfg, b, tier);
+    if (!changed.length) throw new HttpError(400, "Nothing to change. Send one of: " + Object.keys(SETTING_SPEC).join(", "));
+    return changed;
+  });
+  await syncSchedule(env, cur, cfg);
+  return json({ ...cacheView(cur, cfg, await getCs(env, cur.id)), changed: out });
+});
+USER["/api/cache/disable"] = cacheRoute(async (rec, b, { env }) => {
+  const disabled = b.disabled === undefined ? true : parseBool(b.disabled, "disabled");
+  const { rec: cur, cfg } = await mutateCache(env, rec.id, (cfg) => { cfg.enabled = !disabled; });
+  if (disabled) await autoPurge(env, cur.id);
+  return json({ ...cacheView(cur, cfg, await getCs(env, cur.id)), message: disabled ? "Caching is completely disabled (no-store)" : "Caching is enabled again" });
+});
+USER["/api/cache/reset"] = cacheRoute(async (rec, b, { env }) => {
+  const { rec: cur, cfg } = await mutateCache(env, rec.id, (cfg, tier) => { Object.assign(cfg, defaultCacheConfig(tier)); });
+  await syncSchedule(env, cur, cfg);
+  return json(cacheView(cur, cfg, await getCs(env, cur.id)));
+});
+USER["/api/cache/rules/list"] = cacheRoute(async (rec) => json({ success: true, rules: getCacheConfig(rec).rules, max: CACHE_LIMITS[cacheTier(rec)].rules }));
+USER["/api/cache/rules/add"] = cacheRoute(async (rec, b, { env }) => {
+  const { cfg, out } = await mutateCache(env, rec.id, (cfg, tier) => {
+    if (cfg.rules.length >= CACHE_LIMITS[tier].rules) throw new HttpError(403, `Your plan allows ${CACHE_LIMITS[tier].rules} cache rules`);
+    const rule = { id: toHex(crypto.getRandomValues(new Uint8Array(3))), ...parseRule(b, tier) };
+    const pos = b.position !== undefined && b.position !== "" && Number.isInteger(Number(b.position)) ? Math.max(0, Math.min(Number(b.position), cfg.rules.length)) : cfg.rules.length;
+    cfg.rules.splice(pos, 0, rule);
+    return rule;
+  });
+  await autoPurge(env, rec.id);
+  return json({ success: true, rule: out, rules: cfg.rules }, 201);
+});
+USER["/api/cache/rules/update"] = cacheRoute(async (rec, b, { env }) => {
+  const { cfg, out } = await mutateCache(env, rec.id, (cfg, tier) => {
+    const i = cfg.rules.findIndex((r) => r.id === b.ruleId);
+    if (i < 0) throw new HttpError(404, "Rule not found");
+    const rule = { id: cfg.rules[i].id, ...parseRule({ ...cfg.rules[i], ...b }, tier) };
+    cfg.rules.splice(i, 1);
+    const pos = b.position !== undefined && Number.isInteger(Number(b.position)) ? Math.max(0, Math.min(Number(b.position), cfg.rules.length)) : i;
+    cfg.rules.splice(pos, 0, rule);
+    return rule;
+  });
+  await autoPurge(env, rec.id);
+  return json({ success: true, rule: out, rules: cfg.rules });
+});
+USER["/api/cache/rules/delete"] = cacheRoute(async (rec, b, { env }) => {
+  const { cfg } = await mutateCache(env, rec.id, (cfg) => {
+    const i = cfg.rules.findIndex((r) => r.id === b.ruleId);
+    if (i < 0) throw new HttpError(404, "Rule not found");
+    cfg.rules.splice(i, 1);
+  });
+  await autoPurge(env, rec.id);
+  return json({ success: true, rules: cfg.rules });
+});
+USER["/api/cache/purge"] = cacheRoute(async (rec, b, { env, ctx }) => {
+  const tier = cacheTier(rec), lim = CACHE_LIMITS[tier], today = todayKey();
+  const all = b.all === true || b.all === "true";
+  const list = (v) => (v === undefined || v === null ? [] : Array.isArray(v) ? v : String(v).split(","));
+  let spec;
+  if (all) spec = { all: true };
+  else {
+    if (tier < 1) throw new HttpError(403, "Purging single files, paths or extensions is available on paid plans. Send { all: true }");
+    const entries = [];
+    for (const p of list(b.paths)) { const r = parseRule({ type: String(p).includes("*") ? "path" : "file", match: String(p).trim() }, tier); entries.push({ type: r.type, match: r.match }); }
+    for (const x of list(b.extensions)) { const r = parseRule({ type: "extension", match: String(x) }, tier); entries.push({ type: "extension", match: r.match }); }
+    if (!entries.length || entries.length > 20) throw new HttpError(400, "Send all:true, or 1-20 paths / extensions");
+    spec = { entries };
+  }
+  const st0 = await getCs(env, rec.id);
+  if (st0.day !== today) { st0.day = today; st0.n = 0; }
+  if (st0.n >= lim.purgesPerDay) throw new HttpError(429, `Purge limit reached (${lim.purgesPerDay} per day on your plan)`);
+  st0.n++;
+  await saveCs(env, rec.id, st0);
+  const r = await doPurge(env, ctx, rec, spec, "api");
+  return json({
+    success: true, purgedAt: new Date(r.ts).toISOString(), scope: all ? "all" : "partial",
+    note: "Browsers that revalidate (ETag, paid plans) get fresh files now; a copy a browser holds stays until its TTL ends",
+    purgesToday: st0.n,
+  });
+});
+USER["/api/cache/stats"] = cacheRoute(async (rec, b, { env }) => {
+  if (cacheTier(rec) < 3) throw new HttpError(403, "Cache stats are available on the Enterprise plan");
+  const st = await getCs(env, rec.id);
+  const s = (await env.INFO.prepare("SELECT served, not_modified, bypassed FROM cache_stats WHERE app_id = ?1").bind(rec.id).first()) || {};
+  const stats = { served: s.served || 0, notModified: s.not_modified || 0, bypassed: s.bypassed || 0 };
+  const total = stats.served + stats.notModified + stats.bypassed;
+  return json({ success: true, stats: { ...stats, total, notModifiedRate: total ? +(stats.notModified / total).toFixed(4) : 0 }, history: st.history.slice().reverse(), lastPurge: st.lastPurge ? new Date(st.lastPurge).toISOString() : null });
+});
+const bumpStat = (env, id, col) =>
+  env.INFO.prepare(`INSERT INTO cache_stats (app_id, ${col}) VALUES (?1, 1) ON CONFLICT(app_id) DO UPDATE SET ${col} = ${col} + 1`).bind(id).run().catch(() => {});
+
+// ---------------------------------------------------------------- visitor stats
+async function recordVisit(env, rec, host, urlPath, src) {
+  const db = env.INFO, today = todayKey(), id = rec.id, ip = clip(src.ip), now = new Date();
+  let newAll = 0, newDay = 0;
+  if (ip) {
+    const vid = (await sha256hex(id + "|" + ip)).slice(0, 16);
+    const [a, d] = await db.batch([
+      db.prepare("INSERT OR IGNORE INTO seen_all (app_id, vid) VALUES (?1, ?2)").bind(id, vid),
+      db.prepare("INSERT OR IGNORE INTO seen_day (app_id, day, vid) VALUES (?1, ?2, ?3)").bind(id, today, vid),
+    ]);
+    newAll = a.meta.changes ? 1 : 0; newDay = d.meta.changes ? 1 : 0;
+  }
+  const stmts = [
+    db.prepare("INSERT INTO app_stats (app_id, total_visits, total_unique) VALUES (?1, 1, ?2) ON CONFLICT(app_id) DO UPDATE SET total_visits = total_visits + 1, total_unique = total_unique + ?2").bind(id, newAll),
+    db.prepare("INSERT INTO day_stats (app_id, day, visits, uniq) VALUES (?1, ?2, 1, ?3) ON CONFLICT(app_id, day) DO UPDATE SET visits = visits + 1, uniq = uniq + ?3").bind(id, today, newDay),
+  ];
+  if (isPremium(rec)) { // raw visits are kept for paid apps only
+    stmts.push(db.prepare(
+      "INSERT INTO visits (app_id, time, host, path, ip, country, region, city, postal_code, continent, timezone, latitude, longitude, os, device, browser) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16)"
+    ).bind(id, now.toISOString(), host, urlPath, ip, clip(src.country), clip(src.region), clip(src.city), clip(src.postalCode), clip(src.continent), clip(src.timezone), clip(src.latitude), clip(src.longitude), clip(src.os), clip(src.device), clip(src.browser)));
+  }
+  await db.batch(stmts);
+  if (isPremium(rec) && Math.random() < 0.02) {
+    await db.prepare("DELETE FROM visits WHERE app_id = ?1 AND id NOT IN (SELECT id FROM visits WHERE app_id = ?1 ORDER BY id DESC LIMIT ?2)").bind(id, MAX_RAW_VISITS_PER_APP).run();
+  }
+}
+
+USER["/api/apps/stats"] = async ({ env, ctx, body }) => {
+  const owner = await authOwner(env, ctx, body); // username + password + appId (no app password, like before)
+  if (typeof body.appId !== "string" || !body.appId) throw new HttpError(400, "appId is required");
+  const record = owner.apps.find((a) => a.id === body.appId);
+  if (!record) throw new HttpError(404, "App not found");
+  const rec = await loadAppFull(env, "a.id = ?1", record.id);
+  const db = env.INFO, now = new Date();
+  const oldest = dayKey(new Date(now.getTime() - (INFO_KEEP_DAYS - 1) * 86400000));
+  const [t, d] = await db.batch([
+    db.prepare("SELECT total_visits, total_unique FROM app_stats WHERE app_id = ?1").bind(rec.id),
+    db.prepare("SELECT day, visits, uniq FROM day_stats WHERE app_id = ?1 AND day >= ?2").bind(rec.id, oldest),
+  ]);
+  const t0 = t.results[0] || {}, byDay = new Map(d.results.map((r) => [r.day, r]));
+  const days = [];
+  for (let i = INFO_KEEP_DAYS - 1; i >= 0; i--) {
+    const key = dayKey(new Date(now.getTime() - i * 86400000)), r = byDay.get(key) || {};
+    days.push({ date: key, views: r.visits || 0, unique: r.uniq || 0 });
+  }
+  const premium = isPremium(rec);
+  const out = { success: true, app: { ...publicApp(rec), backupLimit: backupLimit(rec) }, premium, totals: { views: t0.total_visits || 0, unique: t0.total_unique || 0 }, days };
+  if (premium) {
+    const cutoff = new Date(now.getTime() - INFO_KEEP_DAYS * 86400000).toISOString();
+    const { results: visits } = await db.prepare("SELECT * FROM visits WHERE app_id = ?1 AND time >= ?2").bind(rec.id, cutoff).all();
+    const top = (map, n) => [...map.entries()].sort((a, b) => b[1] - a[1]).slice(0, n);
+    const inc = (m, k) => m.set(k, (m.get(k) || 0) + 1);
+    const hourMs = 3600000, startHour = Math.floor(now.getTime() / hourMs) * hourMs - 23 * hourMs;
+    const hours = Array.from({ length: 24 }, (_, i) => ({ time: new Date(startHour + i * hourMs).toISOString(), views: 0 }));
+    const countries = new Map(), geo = new Map(), pages = new Map(), cities = new Map(), continents = new Map(), oses = new Map(), devices = new Map(), browsers = new Map();
+    let withCountry = 0;
+    for (const v of visits) {
+      const tm = Date.parse(v.time);
+      if (tm >= startHour) { const i = Math.floor((tm - startHour) / hourMs); if (hours[i]) hours[i].views++; }
+      const cc = v.country ? String(v.country).toUpperCase() : null;
+      if (cc) {
+        withCountry++; inc(countries, cc);
+        const lat = Number(v.latitude), lon = Number(v.longitude);
+        if (Number.isFinite(lat) && Number.isFinite(lon) && !geo.has(cc)) geo.set(cc, [lat, lon]);
+      }
+      if (v.path) inc(pages, v.path);
+      if (v.city) inc(cities, v.city + "|" + (cc || ""));
+      if (v.continent) inc(continents, v.continent);
+      if (v.os) inc(oses, v.os);
+      if (v.device) inc(devices, v.device);
+      if (v.browser) inc(browsers, v.browser);
+    }
+    const named = (m, n) => top(m, n).map(([name, views]) => ({ name, views }));
+    out.detail = {
+      sampleSize: visits.length, hours,
+      countries: top(countries, 10).map(([code, views]) => ({ code, views, lat: geo.get(code) ? geo.get(code)[0] : null, lon: geo.get(code) ? geo.get(code)[1] : null })),
+      countriesTotal: countries.size, withCountry,
+      pages: top(pages, 10).map(([path, views]) => ({ path, views })),
+      cities: top(cities, 10).map(([k, views]) => { const [city, country] = k.split("|"); return { city, country: country || null, views }; }),
+      continents: named(continents, 7), os: named(oses, 10), devices: named(devices, 10), browsers: named(browsers, 10),
+    };
+  }
+  return json(out);
+};
+
+// ---------------------------------------------------------------- daily request limit (per app, UTC day)
+// counted in RAM per isolate and written to INFO in batches, so a visit is not one D1 write
+const RC = new Map(); // appId -> { day, base, pending, last }
+async function flushCount(env, id, e) {
+  const delta = e.pending;
+  if (!delta) return;
+  e.pending = 0; e.last = Date.now();
+  try {
+    const r = await env.INFO.prepare("INSERT INTO request_counts (app_id, day, count) VALUES (?1, ?2, ?3) ON CONFLICT(app_id, day) DO UPDATE SET count = count + excluded.count RETURNING count")
+      .bind(id, e.day, delta).first();
+    if (r) e.base = r.count;
+  } catch { e.pending += delta; }
+}
+async function countRequest(env, ctx, rec) {
+  const today = todayKey();
+  let e = RC.get(rec.id);
+  if (!e || e.day !== today) {
+    const r = await env.INFO.prepare("SELECT count FROM request_counts WHERE app_id = ?1 AND day = ?2").bind(rec.id, today).first();
+    e = { day: today, base: r ? r.count : 0, pending: 0, last: Date.now() };
+    if (RC.size > 5000) RC.clear();
+    RC.set(rec.id, e);
+  }
+  if (e.base + e.pending >= dailyRequestLimit(rec)) return false;
+  e.pending++;
+  if (e.pending >= 25 || Date.now() - e.last > 10000) ctx.waitUntil(flushCount(env, rec.id, e));
+  return true;
+}
+
+// ---------------------------------------------------------------- page serving
+const secondsToMidnight = () => Math.ceil((Date.parse(todayKey()) + 86400000 - Date.now()) / 1000);
+const pageHtml = (title, text) => `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title><body style="font-family:system-ui,sans-serif;display:grid;place-items:center;min-height:100vh;margin:0;text-align:center"><div><h1>${title}</h1><p>${text}</p></div>`;
+const htmlResponse = (title, text, status) => new Response(pageHtml(title, text), { status, headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
+
+async function findAppByHost(env, ctx, rawHost) {
+  const host = normalizeDomain(String(rawHost || "").trim().toLowerCase().replace(/:\d+$/, ""));
+  if (!host) return null;
+  const ad = appDomainOf(env);
+  const hit = await cget("host", host);
+  if (hit) return { host, record: hit.none ? null : hit };
+  let rec = null;
+  if (host.endsWith("." + ad)) rec = await loadAppFull(env, "a.name = ?1", host.slice(0, -(ad.length + 1)));
+  else if (host !== ad) rec = await loadAppFull(env, "a.custom_domain = ?1 AND a.custom_domain_verified IS NOT 0", host);
+  ctx.waitUntil(cput("host", host, rec || { none: true }, rec ? HOST_TTL : NONE_TTL));
+  return { host, record: rec };
+}
+
+function pageCandidates(input) {
+  let p = typeof input === "string" ? input.trim() : "";
+  p = p.split(/[?#]/)[0].replace(/\\/g, "/");
+  try { p = decodeURIComponent(p); } catch { return null; }
+  if (p.includes("\0")) return null;
+  p = p.replace(/^\/+|\/+$/g, "");
+  if (p.split("/").some((s) => s === "." || s === "..")) return null;
+  const base = p || "index";
+  if (extOf(base)) return { urlPath: "/" + p, files: [base] };
+  return { urlPath: "/" + p, files: [base, base + ".html", base + ".htm"] };
+}
+
+async function findFile(env, appId, names) {
+  const ph = names.map((_, i) => "?" + (i + 2)).join(",");
+  const { results } = await env.DB.prepare(`SELECT file_path, info FROM app_files WHERE appid = ?1 AND file_path IN (${ph})`).bind(appId, ...names).all();
+  for (const n of names) {
+    const r = results.find((x) => x.file_path === n);
+    if (!r) continue;
+    const info = parseInfo(r.info);
+    if (info.type === "file") return { name: n, info };
+  }
+  return null;
+}
+function chunkStream(env, appId, p, info, first) {
+  const n = info.chunks || 1;
+  let i = 0;
+  return new ReadableStream({
+    async pull(c) {
+      try {
+        const chunk = i === 0 && first ? first : await getChunk(env, appId, p, i);
+        i++;
+        if (chunk.length) c.enqueue(chunk);
+        if (i >= n) c.close();
+      } catch (e) { c.error(e); }
+    },
+  });
+}
+
+function deviceClass(d) { const s = String(d || "").toLowerCase(); return /tablet|ipad/.test(s) ? "tablet" : /mobile|phone|android|iphone/.test(s) ? "mobile" : "desktop"; }
+function requestSource(request) {
+  const cf = request.cf || {}, ua = request.headers.get("user-agent") || "";
+  const os = /windows/i.test(ua) ? "Windows" : /android/i.test(ua) ? "Android" : /iphone|ipad|ipod/i.test(ua) ? "iOS" : /mac os x|macintosh/i.test(ua) ? "macOS" : /cros/i.test(ua) ? "ChromeOS" : /linux/i.test(ua) ? "Linux" : null;
+  const device = /ipad|tablet/i.test(ua) ? "Tablet" : /mobi|android|iphone/i.test(ua) ? "Mobile" : ua ? "Desktop" : null;
+  const browser = /edg\//i.test(ua) ? "Edge" : /opr\/|opera/i.test(ua) ? "Opera" : /samsungbrowser/i.test(ua) ? "Samsung Internet" : /firefox|fxios/i.test(ua) ? "Firefox" : /chrome|crios/i.test(ua) ? "Chrome" : /safari/i.test(ua) ? "Safari" : null;
+  return { ip: request.headers.get("CF-Connecting-IP"), country: cf.country, region: cf.region, city: cf.city, postalCode: cf.postalCode, continent: cf.continent, timezone: cf.timezone, latitude: cf.latitude, longitude: cf.longitude, os, device, browser };
+}
+
+function resolveCachePolicy(rec, urlPath, fileName, type) {
+  const cfg = getCacheConfig(rec), tier = cacheTier(rec), lim = CACHE_LIMITS[tier];
+  const out = { cfg, tier, mode: "cache", source: "default" };
+  if (!cfg.enabled) return { ...out, mode: "off", source: "disabled" };
+  const media = isMediaFile(type, fileName);
+  const targets = [normPath(urlPath), normPath(fileName)];
+  let b = media ? cfg.mediaBrowserTtl : cfg.browserTtl, e = media ? cfg.mediaEdgeTtl : cfg.edgeTtl;
+  for (const r of cfg.rules.slice(0, lim.rules)) {
+    if (!ruleMatches(r, targets)) continue;
+    out.source = "rule:" + r.id;
+    if (r.action === "bypass") return { ...out, mode: "bypass" };
+    if (r.browserTtl !== null && r.browserTtl !== undefined) b = r.browserTtl;
+    if (r.edgeTtl !== null && r.edgeTtl !== undefined) e = r.edgeTtl;
+    break;
+  }
+  if (tier >= 3 && cfg.smartTtl && !media) {
+    const age = Date.now() - ((rec.cs && rec.cs.lastPurge) || Date.parse(rec.createdAt) || 0);
+    const boost = age > 7 * 86400000 ? 10 : age > 86400000 ? 3 : 1;
+    b = Math.min(b * boost, 86400); e = Math.min(e * boost, 86400);
+  }
+  out.media = media;
+  out.browserTtl = Math.min(b, lim.maxTtl); out.edgeTtl = Math.min(e, lim.maxTtl);
+  return out;
+}
+
+// builds every cache header; notModified = the browser's copy is still good (send 304)
+async function applyCacheHeaders(request, h, rec, urlPath, fileName, type, info, src) {
+  const pol = resolveCachePolicy(rec, urlPath, fileName, type);
+  const { cfg, tier } = pol;
+  if (cfg.debugHeader) h.set("X-Cache-Policy", pol.source);
+  if (pol.mode !== "cache") { h.set("Cache-Control", "no-store"); return { notModified: false, kind: "bypassed", pol }; }
+  const swr = tier >= 1 && cfg.staleWhileRevalidate ? ", stale-while-revalidate=" + Math.min(cfg.staleWhileRevalidate, CACHE_LIMITS[tier].maxTtl) : "";
+  const sie = tier >= 1 && cfg.staleIfError ? ", stale-if-error=" + Math.min(cfg.staleIfError, CACHE_LIMITS[tier].maxTtl) : "";
+  const imm = tier >= 2 && cfg.immutableMedia && pol.media && pol.browserTtl >= 86400 ? ", immutable" : "";
+  h.set("Cache-Control", cfg.edgeCache
+    ? `public, max-age=${pol.browserTtl}, s-maxage=${pol.edgeTtl}${swr}${sie}${imm}`
+    : `private, max-age=${pol.browserTtl}${swr}${sie}${imm}`);
+  let dev = "", country = "";
+  if (tier >= 1 && cfg.deviceCache) { dev = deviceClass(src.device); h.set("X-Cache-Device", dev); h.set("Vary", "Sec-CH-UA-Mobile"); }
+  if (tier >= 2 && cfg.cacheByCountry) { country = String(src.country || "").toUpperCase().slice(0, 2); h.set("X-Cache-Country", country || "XX"); }
+  const lm = info.modified ? new Date(info.modified) : null;
+  if (tier >= 1 && cfg.etag) {
+    const token = purgeToken(rec, urlPath, fileName);
+    const seed = [rec.id, normPath(urlPath), token, dev, country, info.modified || "", info.size || 0].join("|");
+    const etag = '"' + (await sha256hex(seed)).slice(0, 22) + '"';
+    h.set("ETag", etag);
+    h.set("X-Cache-Version", String(token));
+    if (lm && !isNaN(lm)) h.set("Last-Modified", lm.toUTCString());
+    const inm = String(request.headers.get("if-none-match") || "");
+    if (inm && (inm.trim() === "*" || inm.split(",").some((t) => t.trim().replace(/^W\//, "") === etag))) return { notModified: true, kind: "notModified", pol };
+  }
+  return { notModified: false, kind: "served", pol };
+}
+
+const edgeKey = (host, urlPath, variant) => new Request("https://edge.fastsite.internal/page/" + encodeURIComponent(host) + "/" + encodeURIComponent(urlPath + "|" + variant));
+
+async function servePage(request, env, ctx, url) {
+  if (request.method !== "GET" && request.method !== "HEAD") {
+    return new Response("Method not allowed", { status: 405, headers: { Allow: "GET, HEAD" } });
+  }
+  const found = await findAppByHost(env, ctx, url.hostname);
+  if (!found || !found.record) return htmlResponse("Site not found", "No app is connected to this address.", 404);
+  const rec = found.record;
+  const cand = pageCandidates(url.pathname);
+  if (!cand) return htmlResponse("Bad request", "Invalid path.", 400);
+
+  if (!(await countRequest(env, ctx, rec))) {
+    let res = null;
+    try { const r = await env.ASSETS.fetch(new Request(new URL("/visit-limit-exceed.html", url.origin))); if (r.ok) res = new Response(r.body, { status: 429, headers: { "Content-Type": "text/html; charset=utf-8" } }); } catch {}
+    res = res || htmlResponse("Daily visit limit exceeded", "This site has reached its daily visit limit. Please come back tomorrow.", 429);
+    res.headers.set("Cache-Control", "no-store");
+    res.headers.set("Retry-After", String(secondsToMidnight()));
+    return res;
+  }
+
+  const src = requestSource(request);
+  const cfg = getCacheConfig(rec), tier = cacheTier(rec);
+  const variant = (tier >= 1 && cfg.deviceCache ? deviceClass(src.device) : "") + "|" + (tier >= 2 && cfg.cacheByCountry ? String(src.country || "").toUpperCase().slice(0, 2) : "");
+  const useEdge = cfg.enabled && cfg.edgeCache && request.method === "GET";
+  const ek = useEdge ? edgeKey(found.host, cand.urlPath, variant) : null;
+
+  // opt-in edge cache (no purge: a copy lives until its TTL ends)
+  if (ek) {
+    const c = await caches.default.match(ek);
+    if (c) {
+      const h = new Headers(c.headers), bcc = h.get("X-Browser-CC");
+      h.delete("X-Browser-CC");
+      if (bcc) h.set("Cache-Control", bcc);
+      const type = h.get("Content-Type") || "";
+      if (/^text\/html/i.test(type)) ctx.waitUntil(recordVisit(env, rec, found.host, cand.urlPath, src).catch(() => {}));
+      const etag = h.get("ETag"), inm = String(request.headers.get("if-none-match") || "");
+      if (etag && inm && (inm.trim() === "*" || inm.split(",").some((t) => t.trim().replace(/^W\//, "") === etag))) {
+        c.body && c.body.cancel().catch(() => {});
+        return new Response(null, { status: 304, headers: h });
+      }
+      return new Response(c.body, { status: 200, headers: h });
+    }
+  }
+
+  const hit = await findFile(env, rec.id, cand.files);
+  if (!hit) return htmlResponse("Page not found", "The page you are looking for does not exist.", 404);
+  const { name, info } = hit;
+
+  let first = null, type = mimeFor(name);
+  if (!type) {
+    first = await getChunk(env, rec.id, name, 0);
+    type = /^\s*<(!doctype html|html)/i.test(dec.decode(first.subarray(0, 512))) ? "text/html; charset=utf-8" : "application/octet-stream";
+  }
+  const h = new Headers({ "Content-Type": type, "X-Content-Type-Options": "nosniff" });
+  const pol = await applyCacheHeaders(request, h, rec, cand.urlPath, name, type, info, src);
+  if (pol.pol.tier >= 3) ctx.waitUntil(bumpStat(env, rec.id, pol.kind === "notModified" ? "not_modified" : pol.kind));
+  const isHtml = /^text\/html/i.test(type);
+  if (isHtml) ctx.waitUntil(recordVisit(env, rec, found.host, cand.urlPath, src).catch((e) => console.error("visit:", e && e.message)));
+
+  if (pol.notModified) return new Response(null, { status: 304, headers: h });
+  if (request.method === "HEAD") return new Response(null, { status: 200, headers: h });
+
+  const storeEdge = ek && pol.pol.mode === "cache" && pol.pol.edgeTtl > 0 && (info.size || 0) <= 5 * MB;
+  if (storeEdge) {
+    const bytes = await readFileBytes(env, rec.id, name, info);
+    const sh = new Headers(h);
+    sh.set("X-Browser-CC", h.get("Cache-Control") || "");
+    sh.set("Cache-Control", "public, max-age=" + pol.pol.edgeTtl);
+    sh.delete("Vary");
+    ctx.waitUntil(caches.default.put(ek, new Response(bytes, { status: 200, headers: sh })).catch(() => {}));
+    return new Response(bytes, { status: 200, headers: h });
+  }
+  return new Response(chunkStream(env, rec.id, name, info, first), { status: 200, headers: h });
+}
+
+// ---------------------------------------------------------------- scheduled: purge schedule + old stats
+async function runScheduled(env, ctx) {
+  const now = Date.now();
+  try {
+    const { results } = await env.INFO.prepare("SELECT app_id FROM cache_state WHERE next_purge IS NOT NULL AND next_purge <= ?1").bind(now).all();
+    for (const r of results) {
+      const rec = await loadAppFull(env, "a.id = ?1", r.app_id);
+      const st = await getCs(env, r.app_id);
+      if (!rec || cacheTier(rec) < 3 || !(st.every > 0)) { delete st.every; delete st.nextPurge; await saveCs(env, r.app_id, st); continue; }
+      st.nextPurge = now + st.every * 3600000;
+      await saveCs(env, r.app_id, st);
+      await doPurge(env, ctx, rec, { all: true }, "schedule");
+    }
+  } catch (e) { console.error("Scheduled purge failed:", e && e.message); }
+  try {
+    const oldest = dayKey(new Date(now - (INFO_KEEP_DAYS - 1) * 86400000));
+    const cutoff = new Date(now - INFO_KEEP_DAYS * 86400000).toISOString();
+    await env.INFO.batch([
+      env.INFO.prepare("DELETE FROM day_stats WHERE day < ?1").bind(oldest),
+      env.INFO.prepare("DELETE FROM seen_day WHERE day < ?1").bind(oldest),
+      env.INFO.prepare("DELETE FROM request_counts WHERE day < ?1").bind(todayKey()),
+      env.INFO.prepare("DELETE FROM visits WHERE time < ?1").bind(cutoff),
+    ]);
+  } catch (e) { console.error("Stats cleanup failed:", e && e.message); }
+}
+
+// ---------------------------------------------------------------- API entry
+function userCors(env, origin) {
+  if (!origin) return {};
+  if (!originsOf(env).includes(origin)) return null;
+  return { "Access-Control-Allow-Origin": origin, "Vary": "Origin", "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type", "Access-Control-Max-Age": "86400" };
+}
+async function handleUserApi(request, env, ctx, url) {
+  const cors = userCors(env, request.headers.get("Origin"));
+  if (!cors) return json({ success: false, error: "Origin not allowed by CORS" }, 403);
   if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
   try {
-    const res = await route(request, env, url);
+    const handler = USER[url.pathname];
+    const isSignup = url.pathname === "/api/discord-signup";
+    if (!handler || (request.method !== "POST" && !(isSignup && request.method === "GET"))) throw new HttpError(404, "Not found");
+    if (!env.INFO || !env.DB || !env.KV) throw new HttpError(500, "Server is not configured (DB / INFO / KV missing)");
+    let body = {};
+    const isForm = /multipart\/form-data/i.test(request.headers.get("content-type") || "");
+    if (request.method === "POST" && !isForm) body = await readJson(request, url.pathname === "/api/fs" ? MAX_JSON_BYTES : SMALL_JSON_BYTES);
+    const res = await handler({ request, env, ctx, body, url });
     const out = new Response(res.body, res);
     for (const [k, v] of Object.entries(cors)) out.headers.set(k, v);
     return out;
   } catch (err) {
     let status = 500, message = "Server error";
-    if (err instanceof HttpError) { status = err.status; message = err.message; }
-    else console.error(err);
+    if (err instanceof HttpError) { status = err.status; message = err.message; } else console.error(err);
     return json({ success: false, error: message }, status, cors);
   }
 }
 
+// /api/files/* and /api/admin/*: admin key only (the backend and tools use these)
+async function handleAdminApi(request, env, ctx, url) {
+  const cors = corsHeaders(request);
+  if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
+  try {
+    const p = url.pathname, isUpload = p === "/api/files/upload";
+    const handler = isUpload ? uploadRoute : ROUTES[p];
+    if (!handler || request.method !== "POST") throw new HttpError(404, "Not found");
+    if (!env.DB || !env.KV || (p.startsWith("/api/admin/") && !env.INFO)) throw new HttpError(500, "Server is not configured (DB / INFO / KV missing)");
+    const hk = headerKey(request);
+    if (hk && !(await keyMatches(env, hk))) throw denied();
+    const authed = !!hk;
+    let res;
+    if (isUpload) {
+      if (!authed) throw denied();
+      res = await uploadRoute({ request, env });
+    } else {
+      const body = await readJson(request, authed ? MAX_JSON_BYTES : SMALL_JSON_BYTES);
+      if (!authed && !(await keyMatches(env, body.adminKey))) throw denied();
+      res = await handler({ request, env, ctx, body });
+    }
+    const out = new Response(res.body, res);
+    for (const [k, v] of Object.entries(cors)) out.headers.set(k, v);
+    return out;
+  } catch (err) {
+    let status = 500, message = "Server error";
+    if (err instanceof HttpError) { status = err.status; message = err.message; } else console.error(err);
+    return json({ success: false, error: message }, status, cors);
+  }
+}
+
+async function serveDashboard(request, env, url) {
+  const pathname = url.pathname === "/" ? "/index.html" : url.pathname;
+  if (pathname.includes("..")) return new Response("Bad Request.", { status: 400 });
+  let response = await env.ASSETS.fetch(new Request(new URL(pathname, url.origin), request));
+  if (response.status === 404 && !pathname.includes(".")) {
+    response = await env.ASSETS.fetch(new Request(new URL("/index.html", url.origin), request));
+  }
+  return response;
+}
+
 // ---------------------------------------------------------------- worker
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
-
-    // storage API (files in D1)
-    if (url.pathname === "/health" || url.pathname.startsWith("/api/")) {
-      return handleApi(request, env, url);
-    }
-
-    // static site
-    const pathname = url.pathname === "/" ? "/index.html" : url.pathname;
-
-    if (pathname.includes("..")) {
-      return new Response("Bad Request.", { status: 400 });
-    }
-
-    const assetRequest = new Request(
-      new URL(pathname, url.origin),
-      request
-    );
-
-    let response = await env.ASSETS.fetch(assetRequest);
-
-    if (response.status === 404 && !pathname.includes(".")) {
-      response = await env.ASSETS.fetch(
-        new Request(new URL("/index.html", url.origin), request)
-      );
-    }
-
-    return response;
+    const host = url.hostname.toLowerCase();
+    // every subdomain and custom domain comes here: those hosts are served as apps
+    if (!isDashboardHost(env, host)) return servePage(request, env, ctx, url);
+    const p = url.pathname;
+    if (p === "/health" && request.method === "GET") return json({ ok: true });
+    if (p.startsWith("/api/files/") || p.startsWith("/api/admin/")) return handleAdminApi(request, env, ctx, url);
+    if (p.startsWith("/api/")) return handleUserApi(request, env, ctx, url);
+    return serveDashboard(request, env, url);
   },
+  async scheduled(event, env, ctx) { ctx.waitUntil(runScheduled(env, ctx)); },
 };
