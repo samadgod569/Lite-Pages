@@ -1,0 +1,650 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cache settings – Fast Site</title>
+<meta name="description" content="Control caching, TTLs, cache rules and purges for your Fast Site app.">
+<link rel="icon" type="image/svg+xml" href="images/logo.svg">
+<script>
+  (function(){var u,p;try{u=localStorage.getItem("lp-username");p=localStorage.getItem("lp-password")}catch(e){}
+  if(!u||!p)location.replace("signup.html");
+  else if(!new URLSearchParams(location.search).get("id"))location.replace("dashboard.html")})();
+</script>
+<script>
+  (function(){var t;try{t=localStorage.getItem("lp-theme")}catch(e){}
+  if(!t)t=matchMedia("(prefers-color-scheme:dark)").matches?"dark":"light";
+  document.documentElement.dataset.theme=t})();
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{color-scheme:light;--bg:#fff;--surface:#fff;--soft:#f4f4f5;--line:#e4e4e7;--text:#09090b;--muted:#52525b;--accent:#0e7490;--accent-ink:#fff;--glow:#dff3f7;--danger:#b91c1c;--ok:#16a34a}
+  [data-theme=dark]{color-scheme:dark;--bg:#000;--surface:#0a0a0a;--soft:#111113;--line:#262629;--text:#fafafa;--muted:#a1a1aa;--accent:#5be0f0;--accent-ink:#001418;--glow:#0b2c33;--danger:#f87171;--ok:#4ade80}
+  *{box-sizing:border-box}
+  body{margin:0;min-height:100vh;display:flex;flex-direction:column;background:var(--bg);color:var(--text);font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif;line-height:1.6;transition:background .2s,color .2s}
+  main{flex:1;padding:36px 20px 72px;background:radial-gradient(55% 32% at 50% 0%,var(--glow),transparent 75%)}
+  svg{fill:currentColor}
+  [hidden]{display:none!important}
+  .wrap{max-width:1120px;margin:0 auto}
+
+  .top{margin-bottom:22px}
+  h1{font-size:32px;letter-spacing:-.03em;line-height:1.15;margin:0 0 6px}
+  .sub{margin:0 0 14px;color:var(--muted);font-size:15px}
+  .sub b{color:var(--text)}
+  .site{display:flex;align-items:center;flex-wrap:wrap;gap:10px}
+  .site a{display:inline-flex;align-items:center;gap:10px;max-width:100%;padding:10px 16px;border-radius:14px;border:1px solid var(--line);background:var(--surface);color:var(--text);font-weight:600;font-size:15px;text-decoration:none;transition:border-color .15s,transform .15s}
+  .site a:hover{border-color:var(--accent);transform:translateY(-1px)}
+  .site a span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .site a svg{width:16px;height:16px;flex-shrink:0;color:var(--muted)}
+  .live{width:8px;height:8px;border-radius:50%;background:var(--ok);flex-shrink:0;box-shadow:0 0 0 4px color-mix(in srgb,var(--ok) 22%,transparent)}
+  .pill{display:inline-block;padding:3px 11px;border-radius:999px;background:var(--soft);border:1px solid var(--line);font-size:12px;font-weight:600;color:var(--muted)}
+  .pill.plan{background:var(--glow);border-color:transparent;color:var(--accent)}
+  .pill.warn{color:var(--danger)}
+  .pill.ok{color:var(--ok)}
+
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(420px,1fr));gap:20px;margin-bottom:20px;align-items:start}
+  .card{position:relative;border:1px solid var(--line);border-radius:18px;background:var(--surface);padding:20px 22px 20px;min-width:0}
+  .card.wide{grid-column:1/-1}
+  .card h2{margin:0 0 4px;font-size:17px;font-weight:600;letter-spacing:-.01em}
+  .card .lead{margin:0 0 16px;font-size:14px;color:var(--muted)}
+  .label{display:block;margin:14px 0 6px;font-size:12.5px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+  .label:first-of-type{margin-top:0}
+
+  .chip{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:11px 14px;border-radius:12px;border:1px solid var(--line);background:var(--soft);font-weight:600;font-size:15px;word-break:break-all}
+  .chip code{font:inherit}
+  .chip .pill{margin-left:auto}
+
+  .field{display:flex;align-items:stretch;border:1px solid var(--line);border-radius:12px;background:var(--surface);overflow:hidden;transition:border-color .15s,box-shadow .15s}
+  .field:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 20%,transparent)}
+  .field input{flex:1;min-width:0;padding:11px 14px;border:0;outline:0;background:transparent;color:var(--text);font:500 15px Inter,sans-serif}
+  .field input::placeholder{color:var(--muted);opacity:.7}
+  .field .sfx{display:flex;align-items:center;padding:0 14px;background:var(--soft);border-left:1px solid var(--line);color:var(--muted);font-size:14px;font-weight:500;white-space:nowrap}
+  .hint{margin:7px 0 0;font-size:12.5px;color:var(--muted)}
+
+  .row{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px}
+  .btn{display:inline-flex;align-items:center;justify-content:center;padding:11px 20px;border-radius:999px;font:600 15px Inter,sans-serif;text-decoration:none;cursor:pointer;border:1px solid var(--accent);background:var(--accent);color:var(--accent-ink);transition:opacity .15s,transform .15s}
+  .btn:hover{transform:translateY(-1px)}
+  .btn:disabled{opacity:.55;cursor:not-allowed;transform:none}
+  .btn.ghost{background:transparent;color:var(--text);border-color:var(--line)}
+  .btn.ghost:hover{border-color:var(--accent)}
+  .btn.danger{background:transparent;color:var(--danger);border-color:color-mix(in srgb,var(--danger) 45%,var(--line))}
+  .btn.small{padding:6px 14px;font-size:13px}
+
+  .msg{margin:14px 0 0;padding:10px 14px;border-radius:12px;font-size:14px;border:1px solid var(--line);background:var(--soft)}
+  .msg.ok{border-color:color-mix(in srgb,var(--ok) 45%,var(--line));color:var(--ok)}
+  .msg.err{border-color:color-mix(in srgb,var(--danger) 45%,var(--line));color:var(--danger)}
+  .msg.info{color:var(--muted)}
+
+  .dns{margin-top:4px;border:1px solid var(--line);border-radius:12px;overflow:hidden}
+  .dns .r{display:grid;grid-template-columns:78px minmax(0,1fr) auto;align-items:center;gap:12px;padding:10px 14px;font-size:14px}
+  .dns .r+.r{border-top:1px solid var(--line)}
+  .dns .k{font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+  .dns .v{font-weight:600;word-break:break-all}
+  .steps{margin:0 0 4px;padding-left:20px;color:var(--muted);font-size:14px}
+  .steps li{margin:3px 0}
+  .steps b{color:var(--text)}
+
+  .sk{border:1px solid var(--line);border-radius:18px;height:260px;background:linear-gradient(100deg,var(--soft) 30%,var(--line) 50%,var(--soft) 70%);background-size:300% 100%;animation:shine 1.4s linear infinite}
+  @keyframes shine{to{background-position:-300% 0}}
+  .empty{border:1px dashed var(--line);border-radius:22px;background:var(--soft);padding:56px 24px;text-align:center}
+  .empty h2{margin:0 0 6px;font-size:22px;letter-spacing:-.02em}
+  .empty p{margin:0 0 20px;color:var(--muted)}
+  a:focus-visible,button:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+
+
+  .sw{position:relative;display:inline-block;width:44px;height:26px;flex-shrink:0}
+  .sw input{position:absolute;inset:0;width:100%;height:100%;margin:0;opacity:0;cursor:pointer;z-index:1}
+  .sw i{position:absolute;inset:0;border-radius:999px;background:var(--line);transition:background .15s}
+  .sw i::after{content:"";position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:var(--bg);box-shadow:0 1px 3px rgba(0,0,0,.3);transition:transform .15s}
+  .sw input:checked+i{background:var(--accent)}
+  .sw input:checked+i::after{transform:translateX(18px)}
+  .sw input:disabled{cursor:not-allowed}
+  .sw input:disabled+i{opacity:.45}
+  .sw input:focus-visible+i{outline:2px solid var(--accent);outline-offset:3px}
+
+  .set{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 18px;align-items:center;padding:14px 0;border-top:1px solid var(--line)}
+  .set:first-of-type{border-top:0;padding-top:2px}
+  .set .t{font-weight:600;font-size:15px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .set .d{margin:2px 0 0;font-size:13px;color:var(--muted)}
+  .set.locked .t,.set.locked .d{opacity:.6}
+  .set .ctl{display:flex;align-items:center;gap:8px;justify-content:flex-end}
+  .set .ctl .field{width:210px}
+  .set .ctl .field.num{width:150px}
+  .set .ctl .field.wide{width:260px}
+  select.sel{appearance:none;-webkit-appearance:none;border:0;border-left:1px solid var(--line);background:var(--soft);color:var(--muted);font:500 14px Inter,sans-serif;padding:0 26px 0 12px;cursor:pointer;background-image:linear-gradient(45deg,transparent 50%,currentColor 50%),linear-gradient(135deg,currentColor 50%,transparent 50%);background-position:calc(100% - 15px) 50%,calc(100% - 10px) 50%;background-size:5px 5px;background-repeat:no-repeat;outline:0}
+  .field select.sel:disabled,.field input:disabled{opacity:.5;cursor:not-allowed}
+  .field.solo select.sel{border-left:0;background-color:var(--surface);color:var(--text);flex:1;padding:11px 30px 11px 14px;font-size:15px}
+  .pill.lock{background:transparent;font-weight:600}
+
+  .stats{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px;margin:2px 0 4px}
+  .stat{border:1px solid var(--line);background:var(--soft);border-radius:14px;padding:12px 14px}
+  .stat b{display:block;font-size:22px;letter-spacing:-.02em;line-height:1.2}
+  .stat span{font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+
+  .rules{border:1px solid var(--line);border-radius:14px;overflow:hidden;margin-bottom:6px}
+  .rule{display:grid;grid-template-columns:30px minmax(0,1fr) auto;gap:12px;align-items:center;padding:12px 14px}
+  .rule+.rule{border-top:1px solid var(--line)}
+  .rule .n{width:26px;height:26px;border-radius:50%;background:var(--soft);border:1px solid var(--line);display:grid;place-items:center;font-size:12px;font-weight:700;color:var(--muted)}
+  .rule .m{min-width:0}
+  .rule .m b{display:block;font-size:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .rule .m small{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px;color:var(--muted);font-size:12.5px;align-items:center}
+  .rule .m code{font:600 12.5px ui-monospace,SFMono-Regular,Menlo,monospace;padding:1px 7px;border-radius:7px;background:var(--soft);border:1px solid var(--line);color:var(--text)}
+  .rule .acts{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+  .rule .acts .btn{padding:5px 11px;font-size:12.5px}
+  .none{padding:22px 14px;text-align:center;color:var(--muted);font-size:14px;border:1px dashed var(--line);border-radius:14px;background:var(--soft)}
+
+  .form{margin-top:16px;padding-top:6px;border-top:1px solid var(--line)}
+  .form h3{margin:14px 0 0;font-size:15px}
+  .cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:0 14px}
+  textarea.ta{width:100%;min-height:84px;resize:vertical;padding:11px 14px;border:1px solid var(--line);border-radius:12px;background:var(--surface);color:var(--text);font:500 14px ui-monospace,SFMono-Regular,Menlo,monospace;outline:0}
+  textarea.ta:focus{border-color:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 20%,transparent)}
+  textarea.ta:disabled{opacity:.5}
+
+  .hist{margin:6px 0 0;padding:0;list-style:none;border:1px solid var(--line);border-radius:12px;overflow:hidden;font-size:13.5px}
+  .hist li{display:flex;gap:10px;flex-wrap:wrap;padding:8px 14px}
+  .hist li+li{border-top:1px solid var(--line)}
+  .hist time{color:var(--muted);min-width:170px}
+  .hist .by{margin-left:auto}
+
+  @media(max-width:560px){h1{font-size:27px}.grid{grid-template-columns:1fr}.card{padding:18px 16px}.set{grid-template-columns:1fr}.set .ctl{justify-content:flex-start}.set .ctl .field,.set .ctl .field.num,.set .ctl .field.wide{width:100%}.rule{grid-template-columns:30px minmax(0,1fr)}.rule .acts{grid-column:1/-1;justify-content:flex-start}.hist time{min-width:0}}
+  @media(prefers-reduced-motion:reduce){*,::after{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+
+<div id="panelEssentials"></div>
+
+<main>
+  <div class="wrap">
+    <header class="top">
+      <h1>Cache settings</h1>
+      <p class="sub" id="sub">&nbsp;</p>
+      <div class="site" id="site"></div>
+    </header>
+    <div id="content" aria-live="polite"></div>
+  </div>
+</main>
+
+<div id="footer"></div>
+
+<script>
+  const API_BASE = "https://lite-pages.thecodemonai.workers.dev/api";
+  const APP_DOMAIN = "fastsite.host";
+  const APP_ID = new URLSearchParams(location.search).get("id") || "";
+  let app = null;       // from /apps/list
+  let cache = null;     // from /cache/get  { plan, limits, settings, rules, features, lastPurge, purgesToday, purgeHistory }
+  let editingRule = null;
+
+  const $ = id => document.getElementById(id);
+  const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+  fetch("assets/panel-essentials.html").then(r => r.text()).then(html => {
+    const box = $("panelEssentials");
+    box.innerHTML = html;
+    box.querySelectorAll("script").forEach(old => {
+      const s = document.createElement("script");
+      s.textContent = old.textContent;
+      old.replaceWith(s);
+    });
+  }).catch(e => console.error("Could not load panel-essentials.html", e));
+  fetch("assets/footer.html").then(r => r.ok ? r.text() : "").then(h => { $("footer").innerHTML = h; }).catch(() => {});
+
+  // ---------- credentials / api
+  function creds() {
+    try { return { u: localStorage.getItem("lp-username"), p: localStorage.getItem("lp-password") }; }
+    catch (e) { return { u: null, p: null }; }
+  }
+  const storedAppPw = () => { try { return localStorage.getItem("lp-app-password:" + APP_ID) || ""; } catch (e) { return ""; } };
+  const saveAppPw = pw => { try { localStorage.setItem("lp-app-password:" + APP_ID, pw); } catch (e) {} };
+  const forgetAppPw = () => { try { localStorage.removeItem("lp-app-password:" + APP_ID); } catch (e) {} };
+  function appPassword() { return storedAppPw() || ($("apw") ? $("apw").value : ""); }
+
+  async function post(path, extra) {
+    const { u, p } = creds();
+    const res = await fetch(API_BASE + path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(Object.assign({ username: u, password: p }, extra))
+    });
+    let data = {};
+    try { data = await res.json(); } catch (e) {}
+    return { res, data };
+  }
+  // calls that need the app password
+  const appPost = (path, extra) => post(path, Object.assign({ appId: APP_ID, appPassword: appPassword() }, extra));
+
+  function say(id, kind, text) {
+    const el = $(id);
+    if (!el) return;
+    if (!text) { el.hidden = true; el.textContent = ""; return; }
+    el.className = "msg " + kind;
+    el.textContent = text;
+    el.hidden = false;
+  }
+
+  // true = handled (wrong app password / signed out)
+  function commonErrors(res, data, msgId) {
+    if (res.status === 401 && /app password/i.test(data.error || "")) {
+      forgetAppPw();
+      cache = null;
+      showPasswordGate("That app password is wrong. Enter the right one.");
+      return true;
+    }
+    if (res.status === 401) { location.replace("signup.html"); return true; }
+    return false;
+  }
+
+  const hostOf = a => a.name.toLowerCase() + "." + APP_DOMAIN;
+
+  // ---------- setting definitions (one entry per setting the worker accepts)
+  const SET = {
+    edgeCache:           { t: "bool",  title: "Edge cache", d: "Keep copies of your pages at the edge so repeat visits skip the database. A copy lives until its TTL ends; purges do not remove it." },
+    browserTtl:          { t: "ttl",   title: "Browser TTL", d: "How long a visitor's browser reuses pages and files before asking again." },
+    edgeTtl:             { t: "ttl",   title: "Edge TTL", d: "How long a copy stays at the edge. Only used when Edge cache is on." },
+    mediaBrowserTtl:     { t: "ttl",   title: "Media browser TTL", d: "Browser TTL for images, video, audio and fonts." },
+    mediaEdgeTtl:        { t: "ttl",   title: "Media edge TTL", d: "Edge TTL for images, video, audio and fonts." },
+    immutableMedia:      { t: "bool",  title: "Immutable media", d: "Adds the immutable directive to media with a browser TTL of 1 day or more, so browsers never revalidate them." },
+    etag:                { t: "bool",  title: "ETag revalidation", d: "Browsers get a quick 304 when a file has not changed. Purges change the ETag, so visitors get fresh files at once." },
+    staleWhileRevalidate:{ t: "ttl",   title: "Stale while revalidate", d: "Let browsers show an expired copy for this long while they fetch a new one. 0 turns it off." },
+    staleIfError:        { t: "ttl",   title: "Stale if error", d: "Let browsers use an expired copy for this long if the site errors. 0 turns it off." },
+    deviceCache:         { t: "bool",  title: "Cache by device", d: "Separate cached copies for mobile, tablet and desktop." },
+    cacheByCountry:      { t: "bool",  title: "Cache by country", d: "Separate cached copies for each visitor country." },
+    autoPurgeOnDeploy:   { t: "bool",  title: "Auto purge on deploy", d: "Purge the cache whenever files are uploaded, changed, moved or restored from a backup." },
+    debugHeader:         { t: "bool",  title: "Debug header", d: "Adds an X-Cache-Policy header showing which rule or default set the cache headers." },
+    smartTtl:            { t: "bool",  title: "Smart TTL", d: "Pages that have not changed for a while get longer TTLs (up to 1 day). Does not apply to media." },
+    purgeEveryHours:     { t: "hours", title: "Scheduled purge", d: "Purge everything automatically every N hours (0-720). 0 turns it off." },
+    purgeWebhook:        { t: "url",   title: "Purge webhook", d: "A public https URL that receives a POST every time the cache is purged." },
+  };
+  const GROUPS = [
+    { id: "g1", title: "Browser and edge", lead: "How long pages and files are reused.", keys: ["browserTtl", "edgeTtl", "edgeCache"] },
+    { id: "g2", title: "Media files", lead: "Images, video, audio and fonts have their own TTLs.", keys: ["mediaBrowserTtl", "mediaEdgeTtl", "immutableMedia"] },
+    { id: "g3", title: "Revalidation and resilience", lead: "Keep visitors fast, even when files change or the site has a problem.", keys: ["etag", "staleWhileRevalidate", "staleIfError"] },
+    { id: "g4", title: "Cache variants", lead: "Serve a different cached copy depending on who is asking.", keys: ["deviceCache", "cacheByCountry"] },
+    { id: "g5", title: "Purging and debugging", lead: "Keep the cache fresh and see what it is doing.", keys: ["autoPurgeOnDeploy", "smartTtl", "debugHeader"] },
+    { id: "g6", title: "Scheduled purge", lead: "Clear the cache on a timer and get notified.", keys: ["purgeEveryHours", "purgeWebhook"] },
+  ];
+  const UNITS = [["seconds", 1], ["minutes", 60], ["hours", 3600], ["days", 86400]];
+
+  const feat = k => (cache.features && cache.features[k]) || { available: true, requires: "" };
+  const maxTtl = () => (cache.limits && cache.limits.maxTtl) || 86400;
+  const fmtTtl = s => { if (s === null || s === undefined || s === "") return "default"; if (s === 0) return "0 s"; for (let i = UNITS.length - 1; i >= 0; i--) if (s % UNITS[i][1] === 0) return (s / UNITS[i][1]) + " " + (UNITS[i][1] === 1 ? "s" : UNITS[i][0].slice(0, 3 + (UNITS[i][0] === "hours" ? -2 : 0)).replace("min", "min").replace("day", "d").replace("ho", "h")); return s + " s"; };
+  const fmtDate = iso => { try { return new Date(iso).toLocaleString(); } catch (e) { return iso; } };
+
+  // ---------- ttl control: number + unit
+  function ttlControl(id, secs, { optional = false, disabled = false } = {}) {
+    let unit = 1;
+    if (secs) for (const [, m] of UNITS) if (secs % m === 0) unit = m;
+    const val = secs === null || secs === undefined || secs === "" ? "" : secs / unit;
+    return '<div class="field num"><input id="' + id + '" type="number" min="0" step="1" inputmode="numeric" value="' + esc(val) + '"' +
+      (optional ? ' placeholder="default"' : "") + (disabled ? " disabled" : "") + ">" +
+      '<select class="sel" id="' + id + '_u" aria-label="Unit"' + (disabled ? " disabled" : "") + ">" +
+      UNITS.map(([n, m]) => '<option value="' + m + '"' + (m === unit ? " selected" : "") + ">" + n + "</option>").join("") + "</select></div>";
+  }
+  function readTtl(id, label, { optional = false } = {}) {
+    const raw = $(id).value.trim();
+    if (raw === "") { if (optional) return ""; throw new Error(label + " is required."); }
+    const n = Number(raw) * Number($(id + "_u").value);
+    if (!Number.isInteger(n) || n < 0) throw new Error(label + " must be a whole number of seconds (0 or more).");
+    if (n > maxTtl()) throw new Error(label + " can be at most " + fmtTtl(maxTtl()) + " on your plan.");
+    return n;
+  }
+
+  // ---------- header + password gate
+  function renderHeader() {
+    document.title = app.name + " – Cache settings – Fast Site";
+    $("sub").innerHTML = "App <b>" + esc(app.name) + "</b>";
+    const host = app.customDomain || hostOf(app);
+    $("site").innerHTML =
+      '<a href="https://' + esc(host) + '" target="_blank" rel="noopener" aria-label="Open ' + esc(host) + ' in a new tab">' +
+      '<i class="live"></i><span>' + esc(host) + '</span>' +
+      '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3zM5 5h6v2H5v12h12v-6h2v8H3V5z"/></svg></a>' +
+      '<span class="pill plan">' + esc((app.plan || "Free") + " plan") + "</span>";
+  }
+
+  function showPasswordGate(errText) {
+    $("content").innerHTML =
+      '<section class="card wide" id="cardPw">' +
+        "<h2>App password</h2>" +
+        '<p class="lead">Cache settings need your app password. It was shown once when you created the app.</p>' +
+        '<div class="field" style="max-width:420px"><input id="apw" type="password" autocomplete="current-password" placeholder="App password"></div>' +
+        '<div class="row"><button class="btn" id="pwBtn" type="button">Continue</button></div>' +
+        '<p class="msg" id="pwMsg" hidden></p>' +
+      "</section>";
+    $("pwBtn").addEventListener("click", unlock);
+    $("apw").addEventListener("keydown", e => { if (e.key === "Enter") unlock(); });
+    $("apw").focus();
+    if (errText) say("pwMsg", "err", errText);
+  }
+  async function unlock() {
+    const pw = $("apw").value;
+    if (!pw) return say("pwMsg", "err", "Enter your app password.");
+    $("pwBtn").disabled = true;
+    try { await loadCache(pw); } finally { if ($("pwBtn")) $("pwBtn").disabled = false; }
+  }
+
+  // ---------- page skeleton
+  function build() {
+    $("content").innerHTML =
+      '<div class="grid">' +
+        '<section class="card" id="cardMain"></section>' +
+        '<section class="card" id="cardPurge"></section>' +
+      "</div>" +
+      '<div class="grid" id="settingsGrid"></div>' +
+      '<section class="card wide" id="cardRules"></section>' +
+      '<div style="height:20px"></div>' +
+      '<section class="card wide" id="cardStats" hidden></section>';
+    renderMain(); renderSettings(); renderRules(); renderPurge(); renderStats();
+  }
+
+  // ---------- main card (switch, limits, reset)
+  function renderMain() {
+    const s = cache.settings, l = cache.limits || {};
+    $("cardMain").innerHTML =
+      "<h2>Caching</h2>" +
+      '<p class="lead">Turn caching off completely, or reset every setting and rule to its default.</p>' +
+      '<div class="set" style="border-top:0;padding-top:0"><div><div class="t">Caching is <span id="mainState"></span></div>' +
+      '<p class="d">When off, every response is sent with no-store and the cache is purged.</p></div>' +
+      '<div class="ctl"><label class="sw"><input type="checkbox" id="enabledSw"' + (s.enabled !== false ? " checked" : "") + '><i></i></label></div></div>' +
+      '<span class="label">Your plan limits</span>' +
+      '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
+        '<span class="pill plan">' + esc(cache.plan || "Free") + "</span>" +
+        '<span class="pill">' + (cache.rules || []).length + " / " + esc(l.rules) + " rules</span>" +
+        '<span class="pill">Max TTL ' + esc(fmtTtl(l.maxTtl)) + "</span>" +
+        '<span class="pill">' + (l.purgesPerDay === null || l.purgesPerDay === undefined ? "Unlimited" : esc(l.purgesPerDay)) + " purges / day</span>" +
+      "</div>" +
+      '<div class="row"><button class="btn danger" id="resetBtn" type="button">Reset to defaults</button></div>' +
+      '<p class="msg" id="mainMsg" hidden></p>';
+    $("mainState").textContent = s.enabled !== false ? "on" : "off";
+    $("enabledSw").addEventListener("change", toggleEnabled);
+    $("resetBtn").addEventListener("click", resetAll);
+  }
+  async function toggleEnabled(e) {
+    const sw = e.target, disabled = !sw.checked;
+    say("mainMsg", "", "");
+    sw.disabled = true;
+    try {
+      const { res, data } = await appPost("/cache/disable", { disabled });
+      if (commonErrors(res, data)) return;
+      if (!res.ok || !data.success) { sw.checked = !sw.checked; return say("mainMsg", "err", data.error || "Couldn't change caching."); }
+      cache = Object.assign(cache, data);
+      $("mainState").textContent = cache.settings.enabled !== false ? "on" : "off";
+      renderPurge();
+      say("mainMsg", "ok", data.message || "Saved.");
+    } catch (err) { console.error(err); sw.checked = !sw.checked; say("mainMsg", "err", "Network error. Check your connection and try again."); }
+    finally { sw.disabled = false; }
+  }
+  async function resetAll() {
+    say("mainMsg", "", "");
+    if (!confirm("Reset all cache settings to their defaults?\n\nYour cache rules are removed too.")) return;
+    $("resetBtn").disabled = true;
+    try {
+      const { res, data } = await appPost("/cache/reset", {});
+      if (commonErrors(res, data)) return;
+      if (!res.ok || !data.success) return say("mainMsg", "err", data.error || "Couldn't reset the settings.");
+      cache = Object.assign(cache, data);
+      editingRule = null;
+      renderMain(); renderSettings(); renderRules(); renderPurge();
+      say("mainMsg", "ok", "All settings are back to their defaults.");
+    } catch (err) { console.error(err); say("mainMsg", "err", "Network error. Check your connection and try again."); }
+    finally { if ($("resetBtn")) $("resetBtn").disabled = false; }
+  }
+
+  // ---------- settings cards
+  function controlFor(key) {
+    const def = SET[key], f = feat(key), v = cache.settings[key], dis = !f.available;
+    const id = "s_" + key;
+    if (def.t === "bool") return '<label class="sw"><input type="checkbox" id="' + id + '"' + (v ? " checked" : "") + (dis ? " disabled" : "") + "><i></i></label>";
+    if (def.t === "ttl") return ttlControl(id, v, { disabled: dis });
+    if (def.t === "hours") return '<div class="field num"><input id="' + id + '" type="number" min="0" max="720" step="1" inputmode="numeric" value="' + esc(v || 0) + '"' + (dis ? " disabled" : "") + '><span class="sfx">hours</span></div>';
+    return '<div class="field wide"><input id="' + id + '" type="url" autocomplete="off" spellcheck="false" maxlength="300" placeholder="https://example.com/hook" value="' + esc(v || "") + '"' + (dis ? " disabled" : "") + "></div>";
+  }
+  function renderSettings() {
+    $("settingsGrid").innerHTML = GROUPS.map(g =>
+      '<section class="card"><h2>' + esc(g.title) + '</h2><p class="lead">' + esc(g.lead) + "</p>" +
+      g.keys.map(k => {
+        const f = feat(k), d = SET[k];
+        return '<div class="set' + (f.available ? "" : " locked") + '"><div><div class="t"><label for="s_' + k + '">' + esc(d.title) + "</label>" +
+          (f.available ? "" : '<span class="pill lock warn">Requires ' + esc(f.requires) + "</span>") + '</div><p class="d">' + esc(d.d) + '</p></div><div class="ctl">' + controlFor(k) + "</div></div>";
+      }).join("") +
+      '<div class="row"><button class="btn" type="button" data-save="' + g.id + '">Save changes</button></div>' +
+      '<p class="msg" id="msg_' + g.id + '" hidden></p></section>'
+    ).join("");
+    $("settingsGrid").querySelectorAll("[data-save]").forEach(b => b.addEventListener("click", () => saveGroup(b.dataset.save, b)));
+  }
+  function readSetting(key) {
+    const def = SET[key], el = $("s_" + key), title = def.title;
+    if (def.t === "bool") return el.checked;
+    if (def.t === "ttl") return readTtl("s_" + key, title);
+    if (def.t === "hours") {
+      const n = Number(el.value);
+      if (el.value.trim() === "" || !Number.isInteger(n) || n < 0 || n > 720) throw new Error(title + " must be a whole number from 0 to 720.");
+      return n;
+    }
+    const u = el.value.trim();
+    if (u && !/^https:\/\//i.test(u)) throw new Error(title + " must be a public https URL.");
+    return u || null;
+  }
+  async function saveGroup(gid, btn) {
+    const g = GROUPS.find(x => x.id === gid), msg = "msg_" + gid;
+    say(msg, "", "");
+    const changed = {};
+    try {
+      for (const k of g.keys) {
+        if (!feat(k).available) continue;
+        const v = readSetting(k), cur = cache.settings[k];
+        if ((v === null ? null : v) !== (cur === undefined ? (SET[k].t === "url" ? null : cur) : (cur === "" ? null : cur))) changed[k] = v;
+      }
+    } catch (err) { return say(msg, "err", err.message); }
+    if (!Object.keys(changed).length) return say(msg, "info", "No changes to save.");
+    btn.disabled = true; const label = btn.textContent; btn.textContent = "Saving...";
+    try {
+      const { res, data } = await appPost("/cache/settings", changed);
+      if (commonErrors(res, data)) return;
+      if (!res.ok || !data.success) return say(msg, "err", data.error || "Couldn't save the settings.");
+      cache = Object.assign(cache, data);
+      g.keys.forEach(k => { const f = cache.settings[k]; const el = $("s_" + k); if (el && SET[k].t === "url") el.value = f || ""; });
+      renderMain();
+      say(msg, "ok", "Saved: " + (data.changed || Object.keys(changed)).map(k => (SET[k] ? SET[k].title : k)).join(", ") + ".");
+    } catch (err) { console.error(err); say(msg, "err", "Network error. Check your connection and try again."); }
+    finally { btn.disabled = false; btn.textContent = label; }
+  }
+
+  // ---------- cache rules
+  const RULE_TYPES = { all: "Everything", extension: "File extensions", file: "One file", path: "Path pattern" };
+  const MATCH_HINT = { extension: ["css,js,png", "Comma-separated extensions, without the dot."], file: ["/logo.png", "The exact path of one file."], path: ["/assets/*", "A path with * as a wildcard, for example /blog/*."] };
+
+  function ruleLine(r, i, n) {
+    const bypass = r.action === "bypass";
+    return '<div class="rule"><span class="n">' + (i + 1) + "</span>" +
+      '<div class="m"><b>' + esc(r.name || (RULE_TYPES[r.type] + (r.type === "all" ? "" : ": " + r.match))) + "</b><small>" +
+      '<span class="pill ' + (bypass ? "warn" : "ok") + '">' + (bypass ? "Bypass (no-store)" : "Cache") + "</span>" +
+      '<span>' + esc(RULE_TYPES[r.type]) + "</span>" + (r.type === "all" ? "" : "<code>" + esc(r.match) + "</code>") +
+      (bypass ? "" : "<span>Browser " + esc(fmtTtl(r.browserTtl)) + " · Edge " + esc(fmtTtl(r.edgeTtl)) + "</span>") +
+      '</small></div><div class="acts">' +
+      '<button class="btn ghost" type="button" data-up="' + r.id + '"' + (i === 0 ? " disabled" : "") + ' aria-label="Move up">↑</button>' +
+      '<button class="btn ghost" type="button" data-down="' + r.id + '"' + (i === n - 1 ? " disabled" : "") + ' aria-label="Move down">↓</button>' +
+      '<button class="btn ghost" type="button" data-edit="' + r.id + '">Edit</button>' +
+      '<button class="btn danger" type="button" data-del="' + r.id + '">Delete</button></div></div>';
+  }
+
+  function renderRules() {
+    const rules = cache.rules || [], l = cache.limits || {}, e = editingRule ? rules.find(r => r.id === editingRule) : null;
+    const v = e || { type: "all", match: "", action: "cache", name: "", browserTtl: null, edgeTtl: null };
+    const full = !e && rules.length >= l.rules;
+    $("cardRules").innerHTML =
+      "<h2>Cache rules</h2>" +
+      '<p class="lead">Override the defaults for certain files. Rules run from top to bottom and the first one that matches wins. You can use ' + rules.length + " of " + esc(l.rules) + ".</p>" +
+      (rules.length ? '<div class="rules">' + rules.map((r, i) => ruleLine(r, i, rules.length)).join("") + "</div>" : '<div class="none">No rules yet. Everything uses the default TTLs above.</div>') +
+      '<div class="form"><h3>' + (e ? "Edit rule" : "Add a rule") + "</h3>" +
+      '<div class="cols"><div><label class="label" for="r_name">Name (optional)</label><div class="field"><input id="r_name" type="text" maxlength="60" autocomplete="off" placeholder="Long cache for images" value="' + esc(v.name || "") + '"></div></div>' +
+      '<div><label class="label" for="r_type">Applies to</label><div class="field solo"><select class="sel" id="r_type">' +
+        Object.keys(RULE_TYPES).map(k => '<option value="' + k + '"' + (v.type === k ? " selected" : "") + ">" + RULE_TYPES[k] + "</option>").join("") + "</select></div></div></div>" +
+      '<div id="r_matchBox"><label class="label" for="r_match">Match</label><div class="field"><input id="r_match" type="text" autocomplete="off" autocapitalize="none" spellcheck="false" maxlength="200" value="' + esc(v.match === "*" ? "" : v.match) + '"></div><p class="hint" id="r_hint"></p></div>' +
+      '<div class="cols"><div><label class="label" for="r_action">Action</label><div class="field solo"><select class="sel" id="r_action">' +
+        '<option value="cache"' + (v.action === "cache" ? " selected" : "") + '>Cache with these TTLs</option><option value="bypass"' + (v.action === "bypass" ? " selected" : "") + ">Bypass (never cache)</option></select></div></div></div>" +
+      '<div class="cols" id="r_ttls"><div><span class="label">Browser TTL</span>' + ttlControl("r_b", v.browserTtl, { optional: true }) + '</div>' +
+      '<div><span class="label">Edge TTL</span>' + ttlControl("r_e", v.edgeTtl, { optional: true }) + "</div></div>" +
+      '<p class="hint" id="r_ttlhint">Leave a TTL empty to keep the default from the settings above. Max ' + esc(fmtTtl(maxTtl())) + " on your plan.</p>" +
+      '<div class="row"><button class="btn" id="ruleSave" type="button"' + (full ? " disabled" : "") + ">" + (e ? "Save rule" : "Add rule") + "</button>" +
+      (e ? '<button class="btn ghost" id="ruleCancel" type="button">Cancel</button>' : "") + "</div>" +
+      (full ? '<p class="hint">You have reached the rule limit of your plan.</p>' : "") +
+      '<p class="msg" id="ruleMsg" hidden></p></div>';
+    const syncForm = () => {
+      const t = $("r_type").value, a = $("r_action").value;
+      $("r_matchBox").hidden = t === "all";
+      if (MATCH_HINT[t]) { $("r_match").placeholder = MATCH_HINT[t][0]; $("r_hint").textContent = MATCH_HINT[t][1]; }
+      $("r_ttls").hidden = $("r_ttlhint").hidden = a === "bypass";
+    };
+    $("r_type").addEventListener("change", syncForm);
+    $("r_action").addEventListener("change", syncForm);
+    syncForm();
+    $("ruleSave").addEventListener("click", saveRule);
+    if ($("ruleCancel")) $("ruleCancel").addEventListener("click", () => { editingRule = null; renderRules(); });
+    const c = $("cardRules");
+    c.querySelectorAll("[data-edit]").forEach(b => b.addEventListener("click", () => { editingRule = b.dataset.edit; renderRules(); $("r_name").scrollIntoView({ behavior: "smooth", block: "center" }); }));
+    c.querySelectorAll("[data-del]").forEach(b => b.addEventListener("click", () => deleteRule(b.dataset.del)));
+    c.querySelectorAll("[data-up]").forEach(b => b.addEventListener("click", () => moveRule(b.dataset.up, -1)));
+    c.querySelectorAll("[data-down]").forEach(b => b.addEventListener("click", () => moveRule(b.dataset.down, 1)));
+  }
+
+  async function ruleCall(path, extra, okText) {
+    say("ruleMsg", "", "");
+    try {
+      const { res, data } = await appPost(path, extra);
+      if (commonErrors(res, data)) return false;
+      if (!res.ok || !data.success) { say("ruleMsg", "err", data.error || "That didn't work. Try again."); return false; }
+      cache.rules = data.rules || cache.rules;
+      return true;
+    } catch (err) { console.error(err); say("ruleMsg", "err", "Network error. Check your connection and try again."); return false; }
+  }
+  async function saveRule() {
+    let body;
+    try {
+      const type = $("r_type").value, action = $("r_action").value, match = $("r_match").value.trim();
+      if (type !== "all" && !match) throw new Error("Enter what the rule should match.");
+      body = { type, action, name: $("r_name").value.trim(), match: type === "all" ? "*" : match };
+      if (action === "cache") { body.browserTtl = readTtl("r_b", "Browser TTL", { optional: true }); body.edgeTtl = readTtl("r_e", "Edge TTL", { optional: true }); }
+    } catch (err) { return say("ruleMsg", "err", err.message); }
+    const btn = $("ruleSave"); btn.disabled = true;
+    const wasEdit = !!editingRule;
+    const ok = await ruleCall(wasEdit ? "/cache/rules/update" : "/cache/rules/add", wasEdit ? Object.assign({ ruleId: editingRule }, body) : body);
+    if (ok) { editingRule = null; renderMain(); renderRules(); say("ruleMsg", "ok", wasEdit ? "Rule saved." : "Rule added."); }
+    else if ($("ruleSave")) $("ruleSave").disabled = false;
+  }
+  async function deleteRule(id) {
+    if (!confirm("Delete this cache rule?")) return;
+    if (await ruleCall("/cache/rules/delete", { ruleId: id })) { if (editingRule === id) editingRule = null; renderMain(); renderRules(); say("ruleMsg", "ok", "Rule deleted."); }
+  }
+  async function moveRule(id, dir) {
+    const i = cache.rules.findIndex(r => r.id === id);
+    if (i < 0) return;
+    if (await ruleCall("/cache/rules/update", { ruleId: id, position: i + dir })) renderRules();
+  }
+
+  // ---------- purge
+  function renderPurge() {
+    const l = cache.limits || {}, sel = feat("selectivePurge"), disabled = !sel.available;
+    const per = l.purgesPerDay === null || l.purgesPerDay === undefined ? "unlimited" : l.purgesPerDay;
+    const hist = cache.purgeHistory || [];
+    $("cardPurge").innerHTML =
+      "<h2>Purge cache</h2>" +
+      '<p class="lead">Make visitors get fresh files. Used today: <b>' + (cache.purgesToday || 0) + "</b> of " + esc(per) + ". " +
+      (cache.lastPurge ? "Last purge: " + esc(fmtDate(cache.lastPurge)) + "." : "No purge yet.") + "</p>" +
+      '<div class="row" style="margin-top:0"><button class="btn" id="purgeAll" type="button">Purge everything</button></div>' +
+      '<div class="form"><h3>Purge selected files' + (disabled ? ' <span class="pill lock warn">Requires ' + esc(sel.requires) + "</span>" : "") + "</h3>" +
+      '<label class="label" for="p_paths">Files or paths</label>' +
+      '<textarea class="ta" id="p_paths" spellcheck="false" placeholder="/index.html&#10;/blog/*"' + (disabled ? " disabled" : "") + "></textarea>" +
+      '<p class="hint">One per line or comma-separated. Use * for a pattern, like /blog/*.</p>' +
+      '<label class="label" for="p_ext">Extensions</label>' +
+      '<div class="field"><input id="p_ext" type="text" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="css,js,png"' + (disabled ? " disabled" : "") + "></div>" +
+      '<div class="row"><button class="btn ghost" id="purgeSel" type="button"' + (disabled ? " disabled" : "") + ">Purge selected</button></div></div>" +
+      '<p class="msg" id="purgeMsg" hidden></p>' +
+      (hist.length ? '<span class="label" style="margin-top:18px">Recent purges</span><ul class="hist">' +
+        hist.slice(0, 8).map(h => "<li><time>" + esc(fmtDate(h.time)) + "</time><span>" + esc(h.scope === "all" ? "Everything" : h.scope) + '</span><span class="pill by">' + esc(h.by || "") + "</span></li>").join("") + "</ul>" : "");
+    $("purgeAll").addEventListener("click", () => doPurge({ all: true }, $("purgeAll")));
+    if (!disabled) $("purgeSel").addEventListener("click", () => {
+      const paths = $("p_paths").value.split(/[\n,]/).map(s => s.trim()).filter(Boolean);
+      const extensions = $("p_ext").value.split(",").map(s => s.trim()).filter(Boolean);
+      if (!paths.length && !extensions.length) return say("purgeMsg", "err", "Enter at least one file, path or extension.");
+      doPurge({ paths, extensions }, $("purgeSel"));
+    });
+  }
+  async function doPurge(body, btn) {
+    say("purgeMsg", "", "");
+    if (body.all && !confirm("Purge the whole cache for this app?")) return;
+    btn.disabled = true;
+    try {
+      const { res, data } = await appPost("/cache/purge", body);
+      if (commonErrors(res, data)) return;
+      if (!res.ok || !data.success) return say("purgeMsg", "err", data.error || "Couldn't purge the cache.");
+      const g = await appPost("/cache/get", {});
+      if (g.res.ok && g.data.success) cache = Object.assign(cache, g.data);
+      renderPurge();
+      say("purgeMsg", "ok", "Purged. " + (data.note || ""));
+      renderStats();
+    } catch (err) { console.error(err); say("purgeMsg", "err", "Network error. Check your connection and try again."); }
+    finally { if (btn.isConnected) btn.disabled = false; }
+  }
+
+  // ---------- stats (Enterprise)
+  async function renderStats() {
+    const card = $("cardStats"), f = feat("cacheStats");
+    card.hidden = false;
+    if (!f.available) {
+      card.innerHTML = '<h2>Cache statistics <span class="pill lock warn" style="vertical-align:middle">Requires ' + esc(f.requires) + '</span></h2><p class="lead" style="margin:0">See how many requests were served, answered with 304 or bypassed.</p>';
+      return;
+    }
+    card.innerHTML = '<h2>Cache statistics</h2><p class="lead">Loading...</p>';
+    try {
+      const { res, data } = await appPost("/cache/stats", {});
+      if (commonErrors(res, data)) return;
+      if (!res.ok || !data.success) { card.innerHTML = '<h2>Cache statistics</h2><p class="msg err">' + esc(data.error || "Couldn't load the statistics.") + "</p>"; return; }
+      const s = data.stats;
+      card.innerHTML = '<h2>Cache statistics</h2><p class="lead">Since your app was created.</p><div class="stats">' +
+        [["Served", s.served], ["Not modified (304)", s.notModified], ["Bypassed", s.bypassed], ["Total", s.total], ["304 rate", (s.notModifiedRate * 100).toFixed(1) + "%"]]
+          .map(([k, v]) => '<div class="stat"><b>' + esc(typeof v === "number" ? v.toLocaleString() : v) + "</b><span>" + esc(k) + "</span></div>").join("") +
+        '</div><div class="row"><button class="btn ghost small" id="statsRefresh" type="button">Refresh</button></div>';
+      $("statsRefresh").addEventListener("click", renderStats);
+    } catch (err) { console.error(err); card.innerHTML = '<h2>Cache statistics</h2><p class="msg err">Network error. Check your connection and try again.</p>'; }
+  }
+
+  // ---------- loading
+  function message(title, text, btn, href) {
+    $("content").innerHTML = '<div class="empty"><h2>' + esc(title) + "</h2><p>" + esc(text) + "</p>" +
+      (btn ? '<a class="btn" href="' + esc(href) + '">' + esc(btn) + "</a>" : "") + "</div>";
+  }
+
+  async function loadCache(pw) {
+    const { res, data } = await post("/cache/get", { appId: APP_ID, appPassword: pw });
+    if (res.status === 401 && /app password/i.test(data.error || "")) { forgetAppPw(); return showPasswordGate("That app password is wrong. Enter the right one."); }
+    if (res.status === 401) { location.replace("signup.html"); return; }
+    if (!res.ok || !data.success) return say("pwMsg", "err", data.error || "Couldn't load the cache settings.") || (!$("pwMsg") && message("Couldn't load the cache settings", data.error || "Try again.", "Try again", location.pathname + location.search));
+    saveAppPw(pw);
+    cache = data;
+    build();
+  }
+
+  async function load() {
+    const { u, p } = creds();
+    if (!u || !p || !APP_ID) return;
+    $("content").innerHTML = '<div class="grid"><div class="sk"></div><div class="sk"></div></div>';
+    try {
+      const { res, data } = await post("/apps/list", {});
+      if (res.status === 401) return message("Please sign up again", "We couldn't verify your account on this device.", "Sign up", "signup.html");
+      if (!res.ok || !data.success) throw new Error(data.error || "Request failed");
+      app = (data.apps || []).find(a => a.id === APP_ID);
+      if (!app) return message("App not found", "This app doesn't exist or isn't yours.", "Back to dashboard", "dashboard.html");
+      renderHeader();
+      const pw = storedAppPw();
+      if (pw) await loadCache(pw); else showPasswordGate();
+    } catch (err) {
+      console.error(err);
+      message("Couldn't load your app", "Check your connection and try again.", "Try again", location.pathname + location.search);
+    }
+  }
+
+  load();
+</script>
+</body>
+</html>
