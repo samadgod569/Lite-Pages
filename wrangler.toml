@@ -15,3 +15,8 @@ not_found_handling = "none"
 binding = "DB"
 database_name = "files"
 database_id = "8c88d133-3735-442b-8572-112cf6fb3ead"
+
+[[d1_databases]]
+binding = "INFO"
+database_name = "info"
+database_id = "5e43d8d6-2634-475a-8251-83149fdfd093"
