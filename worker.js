@@ -17,7 +17,7 @@
  * Every other host (<name>.APP_DOMAIN or a verified custom domain) is served as an app.
  *
  * Admin API (x-admin-key): /api/files/*  and  /api/admin/*   (used by the backend)
- * User API (username/password/...): /api/discord-signup, /api/apps/*, /api/fs, /api/cache/*, /api/backups/*
+ * User API (username/password/...): /api/discord-signup, /api/apps/*, /api/fs, /api/cache/*, /api/cookies/*, /api/backups/*
  *
  * File storage (D1 "DB"): files are split in 1.5 MB chunks, chunk 0 at file_path = "<path>" with the
  * metadata in `info`, chunk i>0 at "<path>\x1f<i padded to 5>", empty folders have info {"type":"dir"}.
@@ -895,6 +895,7 @@ const rowToApp = (r) => ({
   dailyBackup: r.daily_backup === 1,
   lastAutoBackup: r.last_auto_backup || null,
   cache: parseJson(r.cache, null),
+  cookies: parseJson(r.cookies, []),
 });
 function publicApp(record) {
   return {
@@ -936,7 +937,7 @@ async function loadAccounts(env, username) {
   const out = [];
   for (const a of accs) {
     const { results } = await env.INFO.prepare("SELECT * FROM apps WHERE owner = ?1 ORDER BY created_at").bind(a.discord_id).all();
-    out.push({ discordId: a.discord_id, hash: a.pw_hash, apps: results.map((r) => ({ ...rowToApp(r), cache: undefined, hash: r.pw_hash })) });
+    out.push({ discordId: a.discord_id, hash: a.pw_hash, apps: results.map((r) => ({ ...rowToApp(r), cache: undefined, cookies: undefined, hash: r.pw_hash })) });
   }
   return out;
 }
@@ -1670,6 +1671,213 @@ USER["/api/cache/stats"] = cacheRoute(async (rec, b, { env }) => {
 const bumpStat = (env, id, col) =>
   env.INFO.prepare(`INSERT INTO cache_stats (app_id, ${col}) VALUES (?1, 1) ON CONFLICT(app_id) DO UPDATE SET ${col} = ${col} + 1`).bind(id).run().catch(() => {});
 
+// ---------------------------------------------------------------- cookies (Set-Cookie sent with the pages of an app)
+// Each app has a list of cookie definitions (INFO.apps.cookies, JSON). They are added as Set-Cookie
+// headers to the HTML pages the app serves. They are added to the response only, never to the edge copy.
+const COOKIE_LIMITS = [3, 10, 30, 100];   // cookies per app, by plan tier (same tiers as the cache)
+const MAX_COOKIE_AGE = 400 * 86400;       // browsers cap Max-Age / Expires at 400 days
+const COOKIE_NAME_RE = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;                 // RFC 6265 token
+const COOKIE_VALUE_RE = /^[\x21\x23-\x2b\x2d-\x3a\x3c-\x5b\x5d-\x7e]*$/;  // RFC 6265 cookie-octet
+const HTTP_DATE_RE = /^[A-Za-z]{3}, \d{1,2} [A-Za-z]{3} \d{4} \d{2}:\d{2}:\d{2} GMT$/;
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}([T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?)?$/;
+const SAMESITE = { strict: "Strict", lax: "Lax", none: "None" };
+const COOKIE_PRIORITY = { low: "Low", medium: "Medium", high: "High" };
+const COOKIE_SCOPES = ["all", "path", "file"];
+const COOKIE_FIELDS = ["name", "value", "maxAge", "expires", "domain", "path", "secure", "httpOnly", "sameSite", "partitioned", "priority", "scope", "match", "onlyIfMissing", "enabled"];
+const cookieMax = (rec) => COOKIE_LIMITS[cacheTier(rec)];
+const pickCookieFields = (b) => Object.fromEntries(COOKIE_FIELDS.filter((k) => b[k] !== undefined).map((k) => [k, b[k]]));
+const isUnset = (v) => v === undefined || v === null || v === "";
+const optBool = (v, what) => (isUnset(v) ? false : parseBool(v, what));
+
+function parseExpires(v) {
+  if (isUnset(v)) return null;
+  const s = typeof v === "string" ? v.trim() : "";
+  const t = HTTP_DATE_RE.test(s) || ISO_DATE_RE.test(s) ? Date.parse(s) : NaN;
+  const year = Number.isFinite(t) ? new Date(t).getUTCFullYear() : 0;
+  if (year < 1970 || year > 9999) throw new HttpError(400, 'expires must be a date like "Wed, 28 Oct 2026 18:00:00 GMT" or "2026-10-28T18:00:00Z"');
+  return new Date(t).toUTCString();
+}
+
+// Domain= may only cover this app's own hosts. A parent of the platform domain would send the cookie
+// to every other app on it, so that is never allowed.
+function checkCookieDomain(env, rec, raw) {
+  const d = normalizeDomain(typeof raw === "string" ? raw.trim().toLowerCase().replace(/^\./, "") : "");
+  if (!d) throw new HttpError(400, "domain must be a valid domain name, for example www.example.com");
+  const ad = appDomainOf(env);
+  if (d === ad || ad.endsWith("." + d)) throw new HttpError(400, "domain can't be " + ad + " or a parent of it (it would reach other apps)");
+  const own = rec.name.toLowerCase() + "." + ad;
+  const cd = rec.customDomain && rec.customDomainVerified !== false ? rec.customDomain : null;
+  if (d === own || (cd && (d === cd || cd.endsWith("." + d)))) return d;
+  throw new HttpError(400, "domain must be " + own + (cd ? ", " + cd + " or a parent domain of " + cd : "") + " (browsers reject any other domain)");
+}
+
+// body -> a clean cookie definition (throws 400 with a clear message) + warnings
+function parseCookie(b, env, rec) {
+  const warnings = [];
+  const name = typeof b.name === "string" ? b.name.trim() : "";
+  if (!name || name.length > 128 || !COOKIE_NAME_RE.test(name)) {
+    throw new HttpError(400, "name is required (up to 128 characters: letters, digits and ! # $ % & ' * + - . ^ _ ` | ~)");
+  }
+  let value = isUnset(b.value) ? "" : b.value;
+  if (typeof value === "number" || typeof value === "boolean") value = String(value);
+  if (typeof value !== "string" || !COOKIE_VALUE_RE.test(value)) {
+    throw new HttpError(400, "value can't contain spaces, quotes, commas, semicolons, backslashes or control characters (use encodeURIComponent for such text)");
+  }
+  if (name.length + value.length > 4096) throw new HttpError(400, "name and value together can be at most 4096 characters");
+
+  let maxAge = null;
+  if (!isUnset(b.maxAge)) {
+    const n = typeof b.maxAge === "string" ? Number(b.maxAge) : b.maxAge;
+    if (!Number.isInteger(n) || n < 0 || n > MAX_COOKIE_AGE) throw new HttpError(400, `maxAge must be a whole number of seconds from 0 to ${MAX_COOKIE_AGE} (400 days). 0 deletes the cookie`);
+    maxAge = n;
+  }
+  const expires = parseExpires(b.expires);
+  const domain = isUnset(b.domain) ? null : checkCookieDomain(env, rec, b.domain);
+
+  let path = "/";
+  if (!isUnset(b.path)) {
+    path = typeof b.path === "string" ? b.path.trim() : "";
+    if (!path.startsWith("/") || path.length > 1024 || /[\x00-\x1f\x7f;]/.test(path)) throw new HttpError(400, 'path must start with "/" and can\'t contain ";" or control characters');
+  }
+  const secure = optBool(b.secure, "secure"), httpOnly = optBool(b.httpOnly, "httpOnly"), partitioned = optBool(b.partitioned, "partitioned");
+
+  let sameSite = null;
+  if (!isUnset(b.sameSite)) {
+    sameSite = SAMESITE[String(b.sameSite).trim().toLowerCase()];
+    if (!sameSite) throw new HttpError(400, "sameSite must be Strict, Lax or None");
+  }
+  let priority = null;
+  if (!isUnset(b.priority)) {
+    priority = COOKIE_PRIORITY[String(b.priority).trim().toLowerCase()];
+    if (!priority) throw new HttpError(400, "priority must be Low, Medium or High");
+  }
+
+  const scopeIn = isUnset(b.scope) ? "all" : String(b.scope).trim().toLowerCase();
+  if (!COOKIE_SCOPES.includes(scopeIn)) throw new HttpError(400, 'scope must be "all" (every page), "path" (a pattern like /shop/*) or "file" (one page like /about.html)');
+  const { type: scope, match } = parseRule({ type: scopeIn, match: b.match }, 0);
+
+  // rules browsers enforce (they silently drop the cookie otherwise)
+  if (sameSite === "None" && !secure) throw new HttpError(400, "SameSite=None requires secure: true");
+  if (partitioned && !secure) throw new HttpError(400, "Partitioned requires secure: true");
+  const low = name.toLowerCase();
+  if (low.startsWith("__host-")) {
+    if (!secure) throw new HttpError(400, "A __Host- cookie requires secure: true");
+    if (domain) throw new HttpError(400, "A __Host- cookie can't have a domain");
+    if (path !== "/") throw new HttpError(400, 'A __Host- cookie requires path "/"');
+  } else if (low.startsWith("__secure-") && !secure) throw new HttpError(400, "A __Secure- cookie requires secure: true");
+
+  if (expires && Date.parse(expires) <= Date.now()) {
+    warnings.push(maxAge !== null
+      ? "Expires is in the past, but Max-Age takes precedence, so browsers keep the cookie for Max-Age seconds"
+      : "Expires is in the past, so browsers will delete this cookie instead of storing it");
+  }
+  if (maxAge === 0) warnings.push("Max-Age=0 deletes the cookie in the visitor's browser");
+
+  return {
+    warnings,
+    cookie: {
+      name, value, maxAge, expires, domain, path, secure, httpOnly, sameSite, partitioned, priority, scope, match,
+      onlyIfMissing: optBool(b.onlyIfMissing, "onlyIfMissing"),
+      enabled: isUnset(b.enabled) ? true : parseBool(b.enabled, "enabled"),
+    },
+  };
+}
+
+// the exact header value, in the usual attribute order
+function buildSetCookie(c) {
+  const p = [c.name + "=" + c.value];
+  if (c.maxAge !== null && c.maxAge !== undefined) p.push("Max-Age=" + c.maxAge);
+  if (c.expires) p.push("Expires=" + c.expires);
+  if (c.domain) p.push("Domain=" + c.domain);
+  p.push("Path=" + (c.path || "/"));
+  if (c.secure) p.push("Secure");
+  if (c.httpOnly) p.push("HttpOnly");
+  if (c.sameSite) p.push("SameSite=" + c.sameSite);
+  if (c.partitioned) p.push("Partitioned");
+  if (c.priority) p.push("Priority=" + c.priority);
+  return p.join("; ");
+}
+const cookieView = (c) => ({ ...c, header: buildSetCookie(c) });
+
+// adds the Set-Cookie headers of the app for this page (fileName = the file that is served)
+function addCookies(h, env, rec, host, urlPath, fileName, request) {
+  const list = rec.cookies;
+  if (!Array.isArray(list) || !list.length) return;
+  const targets = [normPath(urlPath), normPath(fileName)], ad = appDomainOf(env);
+  let have = null;
+  for (const c of list.slice(0, cookieMax(rec))) {
+    if (c.enabled === false || !ruleMatches({ type: c.scope, match: c.match }, targets)) continue;
+    if (c.domain) { // the browser would drop it: wrong host, or a domain that reaches other apps
+      if (host !== c.domain && !host.endsWith("." + c.domain)) continue;
+      if (c.domain === ad || ad.endsWith("." + c.domain)) continue;
+    }
+    if (c.onlyIfMissing) {
+      have = have || new Set(String(request.headers.get("cookie") || "").split(";").map((s) => s.split("=")[0].trim()).filter(Boolean));
+      if (have.has(c.name)) continue;
+    }
+    h.append("Set-Cookie", buildSetCookie(c));
+  }
+}
+
+async function mutateCookies(env, appId, fn) {
+  const cur = await loadAppFull(env, "a.id = ?1", appId);
+  if (!cur) throw new HttpError(404, "App not found");
+  const list = Array.isArray(cur.cookies) ? cur.cookies.slice() : [];
+  const out = fn(list, cur);
+  cur.cookies = list;
+  await env.INFO.prepare("UPDATE apps SET cookies = ?1 WHERE id = ?2").bind(JSON.stringify(list), appId).run();
+  await putHostEntries(env, cur); // pages use the new cookies at once on this edge, other edges within ~2 minutes
+  return { list, out };
+}
+const cookieRoute = (fn) => async (c) => {
+  const { record } = await authApp(c.env, c.ctx, c.body);
+  const rec = await loadAppFull(c.env, "a.id = ?1", record.id);
+  if (!rec) throw new HttpError(404, "App not found");
+  return fn(rec, c.body, c);
+};
+
+// { username, password, appId, appPassword }
+USER["/api/cookies/list"] = cookieRoute(async (rec) => json({
+  success: true, max: cookieMax(rec), cookies: (rec.cookies || []).map(cookieView),
+  allowed: { sameSite: Object.values(SAMESITE), priority: Object.values(COOKIE_PRIORITY), scope: COOKIE_SCOPES, maxAgeLimit: MAX_COOKIE_AGE },
+}));
+
+// { ..., name, value?, maxAge?, expires?, domain?, path?, secure?, httpOnly?, sameSite?, partitioned?, priority?,
+//   scope? ("all" | "path" | "file"), match? (for path / file), onlyIfMissing?, enabled? }
+USER["/api/cookies/create"] = cookieRoute(async (rec, b, { env }) => {
+  const { list, out } = await mutateCookies(env, rec.id, (list, cur) => {
+    if (list.length >= cookieMax(cur)) throw new HttpError(403, `Your plan allows ${cookieMax(cur)} cookies`);
+    const parsed = parseCookie(pickCookieFields(b), env, cur);
+    const cookie = { id: toHex(crypto.getRandomValues(new Uint8Array(3))), ...parsed.cookie };
+    list.push(cookie);
+    return { cookie, warnings: parsed.warnings };
+  });
+  return json({ success: true, cookie: cookieView(out.cookie), warnings: out.warnings, cookies: list.map(cookieView) }, 201);
+});
+
+// { ..., cookieId, <any field of create> }  (send null to remove an optional attribute)
+USER["/api/cookies/update"] = cookieRoute(async (rec, b, { env }) => {
+  const { list, out } = await mutateCookies(env, rec.id, (list, cur) => {
+    const i = list.findIndex((c) => c.id === b.cookieId);
+    if (i < 0) throw new HttpError(404, "Cookie not found");
+    const parsed = parseCookie({ ...list[i], ...pickCookieFields(b) }, env, cur);
+    const cookie = { id: list[i].id, ...parsed.cookie };
+    list[i] = cookie;
+    return { cookie, warnings: parsed.warnings };
+  });
+  return json({ success: true, cookie: cookieView(out.cookie), warnings: out.warnings, cookies: list.map(cookieView) });
+});
+
+// { ..., cookieId }
+USER["/api/cookies/delete"] = cookieRoute(async (rec, b, { env }) => {
+  const { list } = await mutateCookies(env, rec.id, (list) => {
+    const i = list.findIndex((c) => c.id === b.cookieId);
+    if (i < 0) throw new HttpError(404, "Cookie not found");
+    list.splice(i, 1);
+  });
+  return json({ success: true, cookies: list.map(cookieView) });
+});
+
 // ---------------------------------------------------------------- visitor stats
 async function recordVisit(env, rec, host, urlPath, src) {
   const db = env.INFO, today = todayKey(), id = rec.id, ip = clip(src.ip), now = new Date();
@@ -1933,11 +2141,14 @@ async function servePage(request, env, ctx, url) {
   if (ek) {
     const c = await caches.default.match(ek);
     if (c) {
-      const h = new Headers(c.headers), bcc = h.get("X-Browser-CC");
-      h.delete("X-Browser-CC");
+      const h = new Headers(c.headers), bcc = h.get("X-Browser-CC"), cfile = h.get("X-Cache-File");
+      h.delete("X-Browser-CC"); h.delete("X-Cache-File");
       if (bcc) h.set("Cache-Control", bcc);
       const type = h.get("Content-Type") || "";
-      if (/^text\/html/i.test(type)) ctx.waitUntil(recordVisit(env, rec, found.host, cand.urlPath, src).catch(() => {}));
+      if (/^text\/html/i.test(type)) {
+        ctx.waitUntil(recordVisit(env, rec, found.host, cand.urlPath, src).catch(() => {}));
+        addCookies(h, env, rec, found.host, cand.urlPath, cfile || cand.files[0], request); // never part of the edge copy
+      }
       const etag = h.get("ETag"), inm = String(request.headers.get("if-none-match") || "");
       if (etag && inm && (inm.trim() === "*" || inm.split(",").some((t) => t.trim().replace(/^W\//, "") === etag))) {
         c.body && c.body.cancel().catch(() => {});
@@ -1962,19 +2173,24 @@ async function servePage(request, env, ctx, url) {
   const isHtml = /^text\/html/i.test(type);
   if (isHtml) ctx.waitUntil(recordVisit(env, rec, found.host, cand.urlPath, src).catch((e) => console.error("visit:", e && e.message)));
 
-  if (pol.notModified) return new Response(null, { status: 304, headers: h });
-  if (request.method === "HEAD") return new Response(null, { status: 200, headers: h });
+  // Set-Cookie goes on the response only (after the edge copy is made), so a cached copy never carries it
+  const withCookies = () => { if (isHtml) addCookies(h, env, rec, found.host, cand.urlPath, name, request); };
+  if (pol.notModified) { withCookies(); return new Response(null, { status: 304, headers: h }); }
+  if (request.method === "HEAD") { withCookies(); return new Response(null, { status: 200, headers: h }); }
 
   const storeEdge = ek && pol.pol.mode === "cache" && pol.pol.edgeTtl > 0 && (info.size || 0) <= 5 * MB;
   if (storeEdge) {
     const bytes = await readFileBytes(env, rec.id, name, info);
     const sh = new Headers(h);
     sh.set("X-Browser-CC", h.get("Cache-Control") || "");
+    sh.set("X-Cache-File", name);
     sh.set("Cache-Control", "public, max-age=" + pol.pol.edgeTtl);
     sh.delete("Vary");
     ctx.waitUntil(caches.default.put(ek, new Response(bytes, { status: 200, headers: sh })).catch(() => {}));
+    withCookies();
     return new Response(bytes, { status: 200, headers: h });
   }
+  withCookies();
   return new Response(chunkStream(env, rec.id, name, info, first), { status: 200, headers: h });
 }
 
