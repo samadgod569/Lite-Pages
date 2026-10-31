@@ -1,0 +1,690 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HTTP settings – Fast Site</title>
+<meta name="description" content="Root folder, custom error pages and single-page-app routing for your Fast Site app.">
+<link rel="icon" type="image/svg+xml" href="images/logo.svg">
+<script>
+  (function(){var u,p;try{u=localStorage.getItem("lp-username");p=localStorage.getItem("lp-password")}catch(e){}
+  if(!u||!p)location.replace("signup.html");
+  else if(!new URLSearchParams(location.search).get("id"))location.replace("dashboard.html")})();
+</script>
+<script>
+  (function(){var t;try{t=localStorage.getItem("lp-theme")}catch(e){}
+  if(!t)t=matchMedia("(prefers-color-scheme:dark)").matches?"dark":"light";
+  document.documentElement.dataset.theme=t})();
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{color-scheme:light;--bg:#fff;--surface:#fff;--soft:#f6f6f7;--line:#e4e4e7;--text:#09090b;--muted:#5b5b66;--accent:#0e7490;--accent-ink:#fff;--danger:#b91c1c;--ok:#16a34a}
+  [data-theme=dark]{color-scheme:dark;--bg:#000;--surface:#0a0a0a;--soft:#111113;--line:#262629;--text:#fafafa;--muted:#a1a1aa;--accent:#5be0f0;--accent-ink:#001418;--danger:#f87171;--ok:#4ade80}
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{margin:0;min-height:100vh;display:flex;flex-direction:column;background:var(--bg);color:var(--text);font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif;line-height:1.55;overflow-x:hidden}
+  main{flex:1;padding:32px 20px 64px}
+  [hidden]{display:none!important}
+  .wrap{max-width:1040px;margin:0 auto}
+  h1{font-size:26px;letter-spacing:-.02em;line-height:1.2;margin:0 0 4px}
+  .sub{margin:0 0 24px;color:var(--muted);font-size:14.5px}
+  .sub b{color:var(--text)}
+  a:focus-visible,button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+  .layout{display:grid;grid-template-columns:minmax(0,1fr);gap:18px;align-items:start}
+  .nav{position:static;display:flex;flex-direction:row;overflow-x:auto;gap:6px;padding-bottom:10px;border-bottom:1px solid var(--line);scrollbar-width:none}
+  .nav::-webkit-scrollbar{display:none}
+  .nv{text-align:left;padding:8px 12px;border:1px solid var(--line);border-radius:8px;background:none;color:var(--muted);font:500 14px Inter,sans-serif;cursor:pointer;white-space:nowrap;flex-shrink:0}
+  .nv:hover{background:var(--soft);color:var(--text)}
+  .nv.on{background:var(--soft);color:var(--text);font-weight:600;border-color:var(--accent)}
+  .panel{min-width:0}
+  .panel h2{margin:0 0 2px;font-size:19px;letter-spacing:-.01em}
+  .lead{margin:0 0 18px;font-size:14px;color:var(--muted)}
+  .lead b{color:var(--text)}
+
+  .list{border:1px solid var(--line);border-radius:12px;background:var(--surface);overflow:hidden}
+  .st{padding:16px 18px}
+  .st+.st{border-top:1px solid var(--line)}
+  .hd{display:flex;flex-wrap:wrap;gap:12px 18px;justify-content:space-between;align-items:center}
+  .tx{flex:1 1 200px;min-width:0}
+  .t{font-weight:600;font-size:15px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .d{margin:2px 0 0;font-size:13px;color:var(--muted)}
+  .rt{display:flex;align-items:center;gap:10px;flex-shrink:0}
+  .val{font-size:14px;font-weight:500;color:var(--muted)}
+  .ed{padding-top:14px}
+  .locked .tx{opacity:.6}
+
+  .label{display:block;margin:0 0 6px;font-size:13px;font-weight:600;color:var(--muted)}
+  .pills{display:flex;gap:8px;flex-wrap:wrap}
+  .pill{display:inline-block;padding:2px 10px;border-radius:999px;background:var(--soft);border:1px solid var(--line);font-size:12px;font-weight:600;color:var(--muted)}
+  .pill.warn{color:var(--danger)}
+  .pill.ok{color:var(--ok)}
+  .pill.lock{background:transparent}
+  .hint{margin:7px 0 0;font-size:12.5px;color:var(--muted)}
+
+  .field{display:flex;align-items:stretch;border:1px solid var(--line);border-radius:8px;background:var(--surface);overflow:hidden;max-width:380px}
+  .field:focus-within,textarea.ta:focus{border-color:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 20%,transparent)}
+  .field.num{max-width:260px}
+  .field input{flex:1;min-width:0;padding:9px 12px;border:0;outline:0;background:transparent;color:var(--text);font:500 14.5px Inter,sans-serif}
+  .field input::placeholder{color:var(--muted);opacity:.7}
+  .field input:disabled,.field select:disabled{opacity:.5;cursor:not-allowed}
+  .sfx{display:flex;align-items:center;padding:0 12px;background:var(--soft);border-left:1px solid var(--line);color:var(--muted);font-size:14px}
+  select.sel{appearance:none;-webkit-appearance:none;border:0;border-left:1px solid var(--line);background:var(--soft);color:var(--muted);font:500 14px Inter,sans-serif;padding:0 26px 0 12px;cursor:pointer;outline:0;background-image:linear-gradient(45deg,transparent 50%,currentColor 50%),linear-gradient(135deg,currentColor 50%,transparent 50%);background-position:calc(100% - 15px) 50%,calc(100% - 10px) 50%;background-size:5px 5px;background-repeat:no-repeat}
+  .field.solo select.sel{border-left:0;background-color:var(--surface);color:var(--text);flex:1;padding:9px 30px 9px 12px;font-size:14.5px}
+  textarea.ta{width:100%;max-width:520px;min-height:84px;resize:vertical;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--text);font:500 13.5px ui-monospace,SFMono-Regular,Menlo,monospace;outline:0;display:block}
+  textarea.ta:disabled{opacity:.5}
+
+  .row{display:flex;gap:8px;flex-wrap:wrap;margin-top:16px}
+  .btn{display:inline-flex;align-items:center;justify-content:center;padding:9px 16px;border-radius:8px;font:600 14px Inter,sans-serif;text-decoration:none;cursor:pointer;border:1px solid var(--accent);background:var(--accent);color:var(--accent-ink)}
+  .btn:hover{opacity:.9}
+  .btn:disabled{opacity:.5;cursor:not-allowed}
+  .btn.ghost{background:transparent;color:var(--text);border-color:var(--line)}
+  .btn.ghost:hover{border-color:var(--accent);opacity:1}
+  .btn.danger{background:transparent;color:var(--danger);border-color:color-mix(in srgb,var(--danger) 45%,var(--line))}
+  .btn.small{padding:6px 12px;font-size:13px}
+
+  .msg{margin:14px 0 0;padding:10px 14px;border-radius:8px;font-size:14px;border:1px solid var(--line);background:var(--soft)}
+  .msg.ok{border-color:color-mix(in srgb,var(--ok) 45%,var(--line));color:var(--ok)}
+  .msg.err{border-color:color-mix(in srgb,var(--danger) 45%,var(--line));color:var(--danger)}
+  .msg.info{color:var(--muted)}
+
+  .sw{position:relative;display:inline-block;width:42px;height:24px;flex-shrink:0}
+  .sw input{position:absolute;inset:0;width:100%;height:100%;margin:0;opacity:0;cursor:pointer;z-index:1}
+  .sw i{position:absolute;inset:0;border-radius:999px;background:var(--line);transition:background .15s}
+  .sw i::after{content:"";position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:50%;background:var(--bg);box-shadow:0 1px 3px rgba(0,0,0,.3);transition:transform .15s}
+  .sw input:checked+i{background:var(--accent)}
+  .sw input:checked+i::after{transform:translateX(18px)}
+  .sw input:disabled{cursor:not-allowed}
+  .sw input:disabled+i{opacity:.45}
+  .sw input:focus-visible+i{outline:2px solid var(--accent);outline-offset:2px}
+
+  .rule{display:grid;grid-template-columns:28px minmax(0,1fr) auto;gap:12px;align-items:center;padding:12px 16px}
+  .rule+.rule{border-top:1px solid var(--line)}
+  .rule .n{width:24px;height:24px;border-radius:50%;background:var(--soft);border:1px solid var(--line);display:grid;place-items:center;font-size:12px;font-weight:700;color:var(--muted)}
+  .rule .m{min-width:0}
+  .rule .m b{display:block;font-size:14.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .rule .m small{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px;color:var(--muted);font-size:12.5px;align-items:center}
+  .rule .m code{font:600 12.5px ui-monospace,SFMono-Regular,Menlo,monospace;padding:1px 7px;border-radius:6px;background:var(--soft);border:1px solid var(--line);color:var(--text)}
+  .acts{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+  .acts .btn{padding:5px 10px;font-size:12.5px}
+  .none{padding:22px 14px;text-align:center;color:var(--muted);font-size:14px;border:1px dashed var(--line);border-radius:12px;background:var(--soft)}
+  .form{margin-top:18px;padding:18px;border:1px solid var(--line);border-radius:12px;background:var(--surface)}
+  .form>*+*{margin-top:14px}
+  .form h3{margin:0;font-size:15px}
+  .form>.hint{margin-top:8px}
+  .form>.row{margin-top:18px}
+  .cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px}
+  .cols .field{max-width:none}
+  .fg+.fg{margin-top:14px}
+
+  .stats{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:12px}
+  .stat{border:1px solid var(--line);background:var(--soft);border-radius:10px;padding:12px 14px}
+  .stat b{display:block;font-size:22px;letter-spacing:-.02em;line-height:1.2}
+  .stat span{font-size:12.5px;font-weight:500;color:var(--muted)}
+  .hist{margin:0;padding:0;list-style:none;border:1px solid var(--line);border-radius:10px;overflow:hidden;font-size:13.5px}
+  .hist li{display:flex;gap:10px;flex-wrap:wrap;padding:8px 14px}
+  .hist li+li{border-top:1px solid var(--line)}
+  .hist time{color:var(--muted);min-width:170px}
+  .hist .by{margin-left:auto}
+  h3.sec{margin:24px 0 8px;font-size:15px}
+
+  .sk{border:1px solid var(--line);border-radius:12px;height:240px;background:linear-gradient(100deg,var(--soft) 30%,var(--line) 50%,var(--soft) 70%);background-size:300% 100%;animation:shine 1.4s linear infinite}
+  @keyframes shine{to{background-position:-300% 0}}
+  .empty{border:1px dashed var(--line);border-radius:14px;background:var(--soft);padding:48px 24px;text-align:center}
+  .empty h2{margin:0 0 6px;font-size:21px}
+  .empty p{margin:0 0 20px;color:var(--muted)}
+  .gate{max-width:480px}
+
+  @media(max-width:820px){
+    main{padding:24px 16px 48px}
+  }
+  @media(max-width:560px){
+    h1{font-size:23px}
+    .st{padding:14px}
+    .field,.field.num,textarea.ta{max-width:none}
+    .rule{grid-template-columns:28px minmax(0,1fr)}
+    .rule .acts{grid-column:1/-1;justify-content:flex-start}
+    .hist time{min-width:0}
+    .form{padding:14px}
+  }
+  @media(prefers-reduced-motion:reduce){*,::after{animation:none!important;transition:none!important}}
+
+  .prev.ml{white-space:pre-wrap}
+  .form .pills{margin-top:2px}
+  .rule .m b.sans{font-family:Inter,system-ui,sans-serif}
+  .ovr a{color:var(--accent);font-weight:600}
+  .form .pills .pill{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+  .list+.form,.none+.form{margin-top:14px}
+  .list .rule .m b{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:14px}
+  .rule .m code.hdr{display:block;max-width:100%;white-space:normal;word-break:break-all;font-weight:500}
+  .chks{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:10px 18px}
+  .chk{display:flex;gap:10px;align-items:flex-start;font-size:14px;cursor:pointer}
+  .chk input{margin:3px 0 0;width:16px;height:16px;accent-color:var(--accent);flex-shrink:0}
+  .chk small{display:block;color:var(--muted);font-size:12.5px}
+  .prev{margin:0;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--soft);font:500 13px ui-monospace,SFMono-Regular,Menlo,monospace;word-break:break-all;white-space:normal}
+  .about p{margin:0 0 10px;font-size:14px;color:var(--muted)}
+  .about p b{color:var(--text)}
+
+  /* ui-kit: custom dropdowns, checkboxes, dialog */
+  select.sel[data-dd]{display:none!important}
+  .dd{position:relative;display:flex;min-width:0}
+  .field.solo .dd{flex:1}
+  .dd-btn{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;min-width:0;border:0;border-left:1px solid var(--line);background:var(--soft);color:var(--muted);font:500 14px Inter,sans-serif;padding:0 12px;cursor:pointer;text-align:left;transition:color .12s,background .12s}
+  .field.solo .dd-btn{border-left:0;background:transparent;color:var(--text);padding:9px 12px;font-size:14.5px}
+  .dd-btn:hover{color:var(--text)}
+  .dd-btn:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+  .dd-btn:disabled{opacity:.5;cursor:not-allowed}
+  .dd-lab{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .dd-btn svg{width:14px;height:14px;flex-shrink:0;transition:transform .15s}
+  .dd.open .dd-btn svg{transform:rotate(180deg)}
+  .dd-menu{position:fixed;z-index:1000;max-height:260px;overflow:auto;padding:5px;background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:0 12px 32px rgba(0,0,0,.22),0 2px 6px rgba(0,0,0,.12);animation:ddIn .12s ease-out;font-family:Inter,system-ui,sans-serif}
+  @keyframes ddIn{from{opacity:0;transform:translateY(-4px)}}
+  @keyframes ddFade{from{opacity:0}}
+  .dd-opt{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:8px 10px;border-radius:8px;font-size:14px;font-weight:500;color:var(--text);cursor:pointer;white-space:nowrap;user-select:none}
+  .dd-opt.act{background:var(--soft)}
+  .dd-opt[aria-selected=true]{font-weight:600;color:var(--accent)}
+  .dd-opt[aria-disabled=true]{opacity:.45;cursor:not-allowed}
+  .dd-opt svg{width:14px;height:14px;flex-shrink:0;opacity:0}
+  .dd-opt[aria-selected=true] svg{opacity:1}
+  input[type=number]{-moz-appearance:textfield;appearance:textfield}
+  input[type=number]::-webkit-outer-spin-button,input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+  .chk input{appearance:none;-webkit-appearance:none;width:18px;height:18px;margin:2px 0 0;border:1.5px solid var(--line);border-radius:5px;background:var(--surface);display:grid;place-items:center;cursor:pointer;flex-shrink:0;transition:background .12s,border-color .12s}
+  .chk input:hover{border-color:var(--accent)}
+  .chk input:checked{background:var(--accent);border-color:var(--accent)}
+  .chk input::after{content:"";width:5px;height:9px;border:solid var(--accent-ink);border-width:0 2px 2px 0;transform:rotate(45deg) scale(0);margin-top:-2px;transition:transform .12s}
+  .chk input:checked::after{transform:rotate(45deg) scale(1)}
+  .chk input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+  .mdl{position:fixed;inset:0;z-index:1100;display:grid;place-items:center;padding:20px;background:color-mix(in srgb,#000 55%,transparent);animation:ddFade .12s ease-out}
+  .mdl-box{width:100%;max-width:400px;padding:20px;background:var(--surface);color:var(--text);border:1px solid var(--line);border-radius:14px;box-shadow:0 20px 50px rgba(0,0,0,.35);animation:ddIn .14s ease-out}
+  .mdl-box h3{margin:0 0 6px;font-size:17px}
+  .mdl-box p{margin:0;color:var(--muted);font-size:14px;white-space:pre-line}
+  .mdl-box .row{justify-content:flex-end;margin-top:20px}
+  .btn.danger.solid{background:var(--danger);border-color:var(--danger);color:#fff}
+</style>
+</head>
+<body>
+
+<div id="panelEssentials"></div>
+
+<main>
+  <div class="wrap">
+    <header>
+      <h1>HTTP settings</h1>
+      <p class="sub" id="sub">&nbsp;</p>
+    </header>
+    <div id="content" aria-live="polite"></div>
+  </div>
+</main>
+
+<div id="footer"></div>
+
+<script>
+  /* ui-kit: custom dropdowns (replace native selects) + confirm dialog */
+  (function () {
+    const CHEV = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6l4 4 4-4"/></svg>';
+    const CHECK = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7"/></svg>';
+    let cur = null;
+    const lab = sel => { const o = sel.options[sel.selectedIndex]; return o ? o.textContent : ""; };
+    const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+    function close(focus) {
+      if (!cur) return;
+      const c = cur; cur = null;
+      c.menu.remove(); c.wrap.classList.remove("open"); c.btn.setAttribute("aria-expanded", "false");
+      document.removeEventListener("mousedown", onOutside, true);
+      document.removeEventListener("keydown", onKey, true);
+      window.removeEventListener("resize", onAway);
+      window.removeEventListener("scroll", onScroll, true);
+      if (focus) c.btn.focus();
+    }
+    const onAway = () => close(false);
+    const onScroll = e => { if (cur && !cur.menu.contains(e.target)) close(false); };
+    const onOutside = e => { if (cur && !cur.menu.contains(e.target) && !cur.wrap.contains(e.target)) close(false); };
+    function setActive(i) {
+      const kids = cur.menu.children;
+      if (!kids[i]) return;
+      if (kids[cur.i]) kids[cur.i].classList.remove("act");
+      cur.i = i; kids[i].classList.add("act"); kids[i].scrollIntoView({ block: "nearest" });
+    }
+    function step(d) {
+      const o = cur.sel.options; let i = cur.i;
+      for (let n = 0; n < o.length; n++) { i = (i + d + o.length) % o.length; if (!o[i].disabled) return setActive(i); }
+    }
+    function choose(i) {
+      const c = cur, sel = c.sel;
+      if (!sel.options[i] || sel.options[i].disabled) return;
+      const changed = sel.selectedIndex !== i;
+      sel.selectedIndex = i;
+      c.btn.querySelector(".dd-lab").textContent = lab(sel);
+      close(true);
+      if (changed) sel.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+    function onKey(e) {
+      if (!cur) return;
+      const k = e.key;
+      if (k === "ArrowDown") { e.preventDefault(); step(1); }
+      else if (k === "ArrowUp") { e.preventDefault(); step(-1); }
+      else if (k === "Home") { e.preventDefault(); setActive(0); }
+      else if (k === "End") { e.preventDefault(); setActive(cur.sel.options.length - 1); }
+      else if (k === "Enter" || k === " ") { e.preventDefault(); choose(cur.i); }
+      else if (k === "Escape") { e.preventDefault(); e.stopPropagation(); close(true); }
+      else if (k === "Tab") close(false);
+    }
+    function open(wrap) {
+      close(false);
+      const sel = wrap._sel, btn = wrap._btn;
+      if (btn.disabled) return;
+      const menu = document.createElement("div");
+      menu.className = "dd-menu"; menu.setAttribute("role", "listbox");
+      menu.innerHTML = [...sel.options].map((o, i) =>
+        '<div class="dd-opt" role="option" data-i="' + i + '" aria-selected="' + (i === sel.selectedIndex) + '"' + (o.disabled ? ' aria-disabled="true"' : "") + "><span>" + esc(o.textContent) + "</span>" + CHECK + "</div>").join("");
+      menu.addEventListener("mousedown", e => e.preventDefault());
+      menu.addEventListener("click", e => { const t = e.target.closest(".dd-opt"); if (t) choose(+t.dataset.i); });
+      menu.addEventListener("mousemove", e => { const t = e.target.closest(".dd-opt"); if (t && cur && cur.i !== +t.dataset.i && t.getAttribute("aria-disabled") !== "true") setActive(+t.dataset.i); });
+      document.body.appendChild(menu);
+      const r = btn.getBoundingClientRect();
+      menu.style.minWidth = Math.max(r.width, 140) + "px";
+      const mh = menu.offsetHeight, mw = menu.offsetWidth, below = innerHeight - r.bottom;
+      const top = below < mh + 12 && r.top > below ? Math.max(8, r.top - mh - 6) : r.bottom + 6;
+      menu.style.top = top + "px";
+      menu.style.left = Math.max(8, Math.min(r.left, innerWidth - mw - 8)) + "px";
+      wrap.classList.add("open"); btn.setAttribute("aria-expanded", "true");
+      cur = { wrap, btn, menu, sel, i: Math.max(0, sel.selectedIndex) };
+      setActive(cur.i);
+      document.addEventListener("mousedown", onOutside, true);
+      document.addEventListener("keydown", onKey, true);
+      window.addEventListener("resize", onAway);
+      window.addEventListener("scroll", onScroll, true);
+    }
+    function enhance(root) {
+      root.querySelectorAll("select.sel:not([data-dd])").forEach(sel => {
+        const wrap = document.createElement("div"); wrap.className = "dd";
+        const btn = document.createElement("button");
+        btn.type = "button"; btn.className = "dd-btn";
+        btn.setAttribute("aria-haspopup", "listbox"); btn.setAttribute("aria-expanded", "false");
+        const l = sel.id && document.querySelector('label[for="' + sel.id + '"]');
+        const al = (l && l.textContent) || sel.getAttribute("aria-label");
+        if (al) btn.setAttribute("aria-label", al);
+        btn.innerHTML = '<span class="dd-lab"></span>' + CHEV;
+        btn.querySelector(".dd-lab").textContent = lab(sel);
+        btn.disabled = sel.disabled;
+        wrap._sel = sel; wrap._btn = btn;
+        btn.addEventListener("click", () => (cur && cur.wrap === wrap ? close(true) : open(wrap)));
+        btn.addEventListener("keydown", e => { if (!cur && (e.key === "ArrowDown" || e.key === "ArrowUp")) { e.preventDefault(); open(wrap); } });
+        wrap.appendChild(btn);
+        sel.dataset.dd = "1";
+        sel.after(wrap);
+        sel.addEventListener("change", () => { btn.querySelector(".dd-lab").textContent = lab(sel); });
+      });
+    }
+    const host = document.getElementById("content") || document.body;
+    new MutationObserver(() => { if (cur && !cur.wrap.isConnected) close(false); enhance(host); }).observe(host, { childList: true, subtree: true });
+    enhance(host);
+
+    // pretty replacement for confirm(): await askConfirm("text", { title, ok, danger })
+    window.askConfirm = function (text, o) {
+      o = o || {};
+      return new Promise(res => {
+        const prev = document.activeElement;
+        const m = document.createElement("div"); m.className = "mdl";
+        m.innerHTML = '<div class="mdl-box" role="alertdialog" aria-modal="true" aria-labelledby="mdlT"><h3 id="mdlT">' + esc(o.title || "Are you sure?") + "</h3><p>" + esc(text) + "</p>" +
+          '<div class="row"><button class="btn ghost" type="button" data-r="0">Cancel</button><button class="btn' + (o.danger ? " danger solid" : "") + '" type="button" data-r="1">' + esc(o.ok || "Confirm") + "</button></div></div>";
+        const done = v => { document.removeEventListener("keydown", key, true); m.remove(); if (prev && prev.focus && prev.isConnected) prev.focus(); res(v); };
+        const key = e => {
+          if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); done(false); }
+          else if (e.key === "Tab") {
+            const b = m.querySelectorAll("button"); e.preventDefault();
+            (document.activeElement === b[0] ? b[1] : b[0]).focus();
+          }
+        };
+        m.addEventListener("click", e => { const b = e.target.closest("button"); if (b) done(b.dataset.r === "1"); else if (e.target === m) done(false); });
+        document.addEventListener("keydown", key, true);
+        document.body.appendChild(m);
+        m.querySelector('[data-r="1"]').focus();
+      });
+    };
+  })();
+</script>
+
+<script>
+  const API_BASE = "https://lite-pages.thecodemonai.workers.dev/api";
+  const APP_ID = new URLSearchParams(location.search).get("id") || "";
+  const TABS = [["overview", "Overview"], ["root", "Root folder"], ["errors", "Error pages"], ["spa", "Single-page app"], ["about", "How it works"]];
+  let app = null, st = null, tab = (TABS.find(t => "#" + t[0] === location.hash) || TABS[0])[0];
+
+  const $ = id => document.getElementById(id);
+  const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+  function inject(id, url) {
+    fetch(url).then(r => r.ok ? r.text() : "").then(html => {
+      const box = $(id);
+      box.innerHTML = html;
+      box.querySelectorAll("script").forEach(old => {
+        const s = document.createElement("script");
+        [...old.attributes].forEach(a => s.setAttribute(a.name, a.value));
+        s.textContent = old.textContent;
+        old.replaceWith(s);
+      });
+    }).catch(e => console.error("Could not load " + url, e));
+  }
+  inject("panelEssentials", "../assets/panel-essentials.html");
+  inject("footer", "../assets/footer-panel.html");
+
+  // ---------- credentials / api
+  function creds() {
+    try { return { u: localStorage.getItem("lp-username"), p: localStorage.getItem("lp-password") }; }
+    catch (e) { return { u: null, p: null }; }
+  }
+  const storedAppPw = () => { try { return localStorage.getItem("lp-app-password:" + APP_ID) || ""; } catch (e) { return ""; } };
+  const saveAppPw = pw => { try { localStorage.setItem("lp-app-password:" + APP_ID, pw); } catch (e) {} };
+  const forgetAppPw = () => { try { localStorage.removeItem("lp-app-password:" + APP_ID); } catch (e) {} };
+  const appPassword = () => storedAppPw() || ($("apw") ? $("apw").value : "");
+
+  async function post(path, extra) {
+    const { u, p } = creds();
+    const res = await fetch(API_BASE + path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(Object.assign({ username: u, password: p }, extra))
+    });
+    let data = {};
+    try { data = await res.json(); } catch (e) {}
+    return { res, data };
+  }
+  const appPost = (path, extra) => post(path, Object.assign({ appId: APP_ID, appPassword: appPassword() }, extra));
+
+  function say(id, kind, text) {
+    const el = $(id);
+    if (!el) return;
+    if (!text) { el.hidden = true; el.textContent = ""; return; }
+    el.className = "msg " + kind;
+    el.textContent = text;
+    el.hidden = false;
+  }
+  function commonErrors(res, data) {
+    if (res.status === 401 && /app password/i.test(data.error || "")) {
+      forgetAppPw(); st = null;
+      showPasswordGate("That app password is wrong. Enter the right one.");
+      return true;
+    }
+    if (res.status === 401) { location.replace("signup.html"); return true; }
+    return false;
+  }
+  const netErr = "Network error. Check your connection and try again.";
+
+  // ---------- helpers
+  const head = (t, l) => "<h2>" + esc(t) + '</h2><p class="lead">' + l + "</p>";
+  const opt = (val, cur, label) => '<option value="' + val + '"' + (cur === val ? " selected" : "") + ">" + label + "</option>";
+  const lines = (s, re) => String(s).split(re).map(x => x.trim()).filter(Boolean);
+  const onOff = v => v ? '<span class="pill ok">On</span>' : '<span class="pill">Off</span>';
+  const swRow = (id, title, desc, on, dis) =>
+    '<div class="hd"><div class="tx"><div class="t">' + esc(title) + '</div><p class="d">' + desc + "</p></div>" +
+    '<div class="rt"><label class="sw"><input type="checkbox" id="' + id + '" aria-label="' + esc(title) + '"' + (on ? " checked" : "") + (dis ? " disabled" : "") + "><i></i></label></div></div>";
+  const lockNote = () => st.premium ? "" : '<p class="msg info">HTTP settings need a paid plan. You can look around, but changes are turned off on the Free plan.</p>';
+  const msgBox = '<p class="msg" id="pmsg" hidden></p>';
+
+  // ---------- header + password gate
+  function renderHeader() {
+    document.title = app.name + " – HTTP settings – Fast Site";
+    $("sub").innerHTML = "App <b>" + esc(app.name) + "</b>";
+  }
+  function showPasswordGate(errText) {
+    $("content").innerHTML =
+      '<div class="gate"><h2 style="margin:0 0 2px;font-size:19px">App password</h2>' +
+      '<p class="lead">HTTP settings need your app password. It was shown once when you created the app.</p>' +
+      '<div class="field"><input id="apw" type="password" autocomplete="current-password" placeholder="App password"></div>' +
+      '<div class="row"><button class="btn" id="pwBtn" type="button">Continue</button></div>' +
+      '<p class="msg" id="pwMsg" hidden></p></div>';
+    $("pwBtn").addEventListener("click", unlock);
+    $("apw").addEventListener("keydown", e => { if (e.key === "Enter") unlock(); });
+    $("apw").focus();
+    if (errText) say("pwMsg", "err", errText);
+  }
+  async function unlock() {
+    const pw = $("apw").value;
+    if (!pw) return say("pwMsg", "err", "Enter your app password.");
+    $("pwBtn").disabled = true;
+    try { await loadAll(pw); } finally { if ($("pwBtn")) $("pwBtn").disabled = false; }
+  }
+
+  // ---------- page skeleton: tab nav + one panel at a time
+  function build() {
+    $("content").innerHTML = '<div class="layout"><nav class="nav" id="nav" aria-label="HTTP sections"></nav><section class="panel" id="panel"></section></div>';
+    $("nav").innerHTML = TABS.map(([id, t]) => '<button type="button" class="nv" data-t="' + id + '">' + esc(t) + "</button>").join("");
+    $("nav").addEventListener("click", e => {
+      const b = e.target.closest("[data-t]");
+      if (!b) return;
+      tab = b.dataset.t;
+      try { history.replaceState(null, "", "#" + tab); } catch (err) {}
+      render();
+    });
+    $("panel").addEventListener("click", onClick);
+    $("panel").addEventListener("change", onChange);
+    $("panel").addEventListener("keydown", e => {
+      if (e.key !== "Enter") return;
+      if (e.target.id === "rt_dir") { e.preventDefault(); saveRoot(); }
+      else if (e.target.id === "ep_page") { e.preventDefault(); addError(); }
+    });
+    render();
+  }
+  function render(msg) {
+    $("nav").querySelectorAll(".nv").forEach(b => {
+      const on = b.dataset.t === tab;
+      b.classList.toggle("on", on);
+      if (on) { b.setAttribute("aria-current", "page"); b.scrollIntoView({ block: "nearest", inline: "center" }); } else b.removeAttribute("aria-current");
+    });
+    ({ overview: renderOverview, root: renderRoot, errors: renderErrors, spa: renderSpa, about: renderAbout }[tab] || renderOverview)();
+    if (msg) say("pmsg", msg[0], msg[1]);
+  }
+  function goTab(t) {
+    tab = t;
+    try { history.replaceState(null, "", "#" + t); } catch (err) {}
+    render();
+  }
+  function onClick(e) {
+    const a = e.target.closest("[data-go]");
+    if (a) { e.preventDefault(); return goTab(a.dataset.go); }
+    const b = e.target.closest("button");
+    if (!b || b.disabled) return;
+    const id = b.id, act = b.dataset.act;
+    if (id === "rtSave") saveRoot();
+    else if (id === "rtClear") clearRoot();
+    else if (id === "epAdd") addError();
+    else if (id === "spSave") saveSpa();
+    else if (id === "spUndo" || id === "rtUndo") render();
+    else if (act === "rmErr") removeError(b.dataset.status);
+    else if (act === "editErr") editError(b.dataset.status, b.dataset.page);
+  }
+  function onChange(e) {
+    if (e.target.id === "sp_mode") syncSpa();
+  }
+
+  // ---------- shared: save through the /site routes
+  async function siteCall(path, body, okText, btnId) {
+    say("pmsg", "", "");
+    const btn = btnId && $(btnId);
+    if (btn) btn.disabled = true;
+    try {
+      const { res, data: d } = await appPost(path, body);
+      if (commonErrors(res, d)) return false;
+      if (!res.ok || !d.success) { say("pmsg", "err", d.error || "Couldn’t save the settings."); return false; }
+      st.site = d.site; st.premium = d.premium;
+      const w = (d.warnings || []).filter(x => !/paid plans/i.test(x));
+      render([w.length ? "info" : "ok", okText + (w.length ? " " + w.join(". ") + "." : "")]);
+      return true;
+    } catch (err) { console.error(err); say("pmsg", "err", netErr); return false; }
+    finally { if (btn && btn.isConnected) btn.disabled = false; }
+  }
+  const securityHref = () => "security-settings.html?id=" + encodeURIComponent(APP_ID);
+  const code = t => "<code>" + esc(t) + "</code>";
+  const STATUS = { 400: "Bad request", 403: "Access denied", 404: "Page not found", 429: "Daily visit limit", 500: "Server error" };
+  const statusName = s => STATUS[s] ? s + " – " + STATUS[s] : String(s);
+
+  // ---------- Overview
+  function renderOverview() {
+    const s = st.site, errs = Object.keys(s.errors).length;
+    const row = (label, val, go, href) => '<div class="st"><div class="hd"><div class="tx"><div class="t">' + esc(label) + '</div></div><div class="rt"><span class="val">' + val + "</span>" +
+      (go ? '<button class="btn ghost small" type="button" data-go="' + go + '">Change</button>' : '<a class="btn ghost small" href="' + esc(href) + '">Change</a>') + "</div></div></div>";
+    $("panel").innerHTML =
+      head("Overview", "Everything stored in your app’s site settings in one place.") + lockNote() +
+      '<div class="list">' +
+      row("Root folder", s.rootDir ? code("/" + s.rootDir) : "Whole app", "root") +
+      row("Error pages", errs ? errs + (errs === 1 ? " page" : " pages") : "Built-in pages", "errors") +
+      row("Single-page app", s.spa.mode === "off" ? "Off" : s.spa.mode === "fallback" ? "Fallback to " + code(s.spa.page) : "Always " + code(s.spa.page), "spa") +
+      row("Private mode", onOff(s.private), null, securityHref() + "#private") +
+      row("Allowed IP addresses", s.allowedIps.length, null, securityHref() + "#private") +
+      row("Blocked IP addresses", s.blockedIps.length, null, securityHref() + "#ips") +
+      row("Maintenance mode", onOff(s.maintenance.enabled), null, securityHref() + "#maintenance") +
+      "</div>" +
+      '<p class="hint">Private mode, IP rules and maintenance mode are managed on the <a href="' + esc(securityHref()) + '" style="color:var(--accent);font-weight:600">Security settings</a> page.</p>' + msgBox;
+  }
+
+  // ---------- Root folder
+  function renderRoot() {
+    const s = st.site, dis = !st.premium;
+    $("panel").innerHTML =
+      head("Root folder", "Serve your website from a folder inside your app instead of the top level. Right now: " + (s.rootDir ? code("/" + s.rootDir) : "<b>the whole app</b>") + ".") + lockNote() +
+      '<div class="form" style="margin-top:0"><div><label class="label" for="rt_dir">Folder</label>' +
+      '<div class="field"><input id="rt_dir" type="text" spellcheck="false" autocapitalize="none" placeholder="/public" value="' + esc(s.rootDir ? "/" + s.rootDir : "") + '"' + (dis ? " disabled" : "") + "></div>" +
+      '<p class="hint">Useful for build output such as /dist or /public. A visit to /about.html then opens /' + esc(s.rootDir || "public") + "/about.html. Files outside the folder are not served.</p></div>" +
+      '<p class="msg info">Your error pages, single-page app file and maintenance page are looked up inside this folder too, so keep them there.</p>' +
+      '<div class="row"><button class="btn" id="rtSave" type="button"' + (dis ? " disabled" : "") + '>Save root folder</button><button class="btn ghost" id="rtUndo" type="button">Undo changes</button>' +
+      '<button class="btn danger" id="rtClear" type="button"' + (dis || !s.rootDir ? " disabled" : "") + ">Use whole app</button></div></div>" + msgBox;
+  }
+  async function saveRoot() {
+    const v = $("rt_dir").value.trim();
+    if (!v) return say("pmsg", "err", "Enter a folder like /public, or use “Use whole app”.");
+    await siteCall("/site/update", { rootDir: v }, "Root folder saved.", "rtSave");
+  }
+  async function clearRoot() {
+    if (!await askConfirm("Your website will be served from the top level of your app again.", { title: "Use the whole app?", ok: "Use whole app", danger: true })) return;
+    await siteCall("/site/update", { rootDir: null }, "Your website is served from the whole app again.");
+  }
+
+  // ---------- Error pages
+  function renderErrors() {
+    const s = st.site, dis = !st.premium, codes = Object.keys(s.errors).sort((a, b) => a - b), lim = st.limits;
+    const list = codes.length
+      ? '<div class="list">' + codes.map((c, i) =>
+        '<div class="rule"><span class="n">' + (i + 1) + '</span><div class="m"><b class="sans">' + esc(statusName(c)) + "</b><small>" + code("/" + (s.rootDir ? s.rootDir + "/" : "") + s.errors[c]) + "</small></div>" +
+        '<div class="acts"><button class="btn ghost" type="button" data-act="editErr" data-status="' + esc(c) + '" data-page="' + esc(s.errors[c]) + '"' + (dis ? " disabled" : "") + '>Edit</button>' +
+        '<button class="btn danger" type="button" data-act="rmErr" data-status="' + esc(c) + '"' + (dis ? " disabled" : "") + ">Remove</button></div></div>").join("") + "</div>"
+      : '<div class="none">No custom error pages. Visitors see the built-in pages.</div>';
+    const known = Object.keys(STATUS);
+    $("panel").innerHTML =
+      head("Error pages", "Show your own page instead of the built-in one when something goes wrong.") + lockNote() + list +
+      '<div class="form"><h3 id="ep_title">Add an error page</h3>' +
+      '<div class="cols"><div><label class="label" for="ep_status">Error</label><div class="field solo"><select class="sel" id="ep_status"' + (dis ? " disabled" : "") + ">" +
+        known.map(k => opt(k, "404", esc(statusName(k)))).join("") + "</select></div></div>" +
+      '<div><label class="label" for="ep_page">Page file</label><div class="field"><input id="ep_page" type="text" spellcheck="false" autocapitalize="none" placeholder="404.html"' + (dis ? " disabled" : "") + "></div></div></div>" +
+      '<p class="hint">A file from your app, like 404.html or errors/404.html. It must already exist. Up to ' + esc(lim.maxErrorPages) + " error pages. The 403 page is also used for blocked IPs, private mode and hotlink protection. The 429 page shows when the daily visit limit is reached.</p>" +
+      '<div class="row"><button class="btn" id="epAdd" type="button"' + (dis ? " disabled" : "") + '>Save error page</button></div></div>' + msgBox;
+  }
+  async function addError() {
+    const status = Number($("ep_status").value), page = $("ep_page").value.trim();
+    if (!page) return say("pmsg", "err", "Enter the page file, like 404.html.");
+    await siteCall("/site/errors/set", { status, page }, statusName(status) + " page saved.", "epAdd");
+  }
+  function editError(status, page) {
+    const sel = $("ep_status");
+    if (![...sel.options].some(o => o.value === String(status))) return;
+    sel.value = String(status);
+    sel.dispatchEvent(new Event("change", { bubbles: true }));
+    $("ep_page").value = page;
+    $("ep_page").focus();
+    $("ep_title").scrollIntoView({ block: "center", behavior: "smooth" });
+  }
+  async function removeError(status) {
+    if (!await askConfirm("Visitors will see the built-in page for " + statusName(status) + " again. The file stays in your app.", { title: "Remove error page?", ok: "Remove", danger: true })) return;
+    await siteCall("/site/errors/delete", { status: Number(status) }, "Error page removed.");
+  }
+
+  // ---------- Single-page app
+  const SPA_MODES = { off: "Off", fallback: "Fallback (recommended)", always: "Always" };
+  const SPA_HINT = {
+    off: "Missing pages show a 404 error. Choose this for a normal multi-page website.",
+    fallback: "A missing page without a file extension opens your app’s main page, so links like /dashboard work after a reload. Missing files such as /logo.png still return 404.",
+    always: "Every request opens the main page, even for images, scripts and styles. Only use this when your app handles all the routing itself."
+  };
+  function renderSpa() {
+    const sp = st.site.spa, dis = !st.premium;
+    $("panel").innerHTML =
+      head("Single-page app", "Make React, Vue and similar apps work with clean links. Right now: <b>" + esc(SPA_MODES[sp.mode] || sp.mode) + "</b>.") + lockNote() +
+      '<div class="form" style="margin-top:0"><div><label class="label" for="sp_mode">Routing</label><div class="field solo"><select class="sel" id="sp_mode"' + (dis ? " disabled" : "") + ">" +
+        Object.keys(SPA_MODES).map(k => opt(k, sp.mode, SPA_MODES[k])).join("") + '</select></div><p class="hint" id="sp_hint"></p></div>' +
+      '<div id="sp_box"><label class="label" for="sp_page">Main page</label><div class="field"><input id="sp_page" type="text" spellcheck="false" autocapitalize="none" placeholder="index.html" value="' + esc(sp.page) + '"' + (dis ? " disabled" : "") + ">" +
+      '</div><p class="hint">The file to open for app routes. It must already exist' + (st.site.rootDir ? " inside /" + esc(st.site.rootDir) : "") + ".</p></div>" +
+      '<div class="row"><button class="btn" id="spSave" type="button"' + (dis ? " disabled" : "") + '>Save</button><button class="btn ghost" id="spUndo" type="button">Undo changes</button></div></div>' + msgBox;
+    syncSpa();
+  }
+  function syncSpa() {
+    const m = $("sp_mode").value;
+    $("sp_hint").textContent = SPA_HINT[m] || "";
+    $("sp_box").hidden = m === "off";
+  }
+  async function saveSpa() {
+    const mode = $("sp_mode").value, spa = { mode };
+    if (mode !== "off") {
+      spa.page = $("sp_page").value.trim();
+      if (!spa.page) return say("pmsg", "err", "Enter the main page, like index.html.");
+    }
+    const run = () => siteCall("/site/update", { spa }, mode === "off" ? "Single-page app routing is off." : "Single-page app routing saved.", "spSave");
+    if (mode === "always" && st.site.spa.mode !== "always" &&
+        !await askConfirm("Every request, including images and scripts, will open your main page. Only continue if your app does all its own routing.", { title: "Always open the main page?", ok: "Turn on", danger: true })) return;
+    await run();
+  }
+
+  // ---------- how it works
+  function renderAbout() {
+    const l = st.limits;
+    $("panel").innerHTML = head("How it works", "What each HTTP setting does before you change it.") +
+      '<div class="about">' +
+      "<p><b>Root folder.</b> Your website is served from this folder. Everything outside it stays private to your app.</p>" +
+      "<p><b>Error pages.</b> When a page is missing or a visitor is refused, your own file is shown with the right status code instead of the built-in page. If the file is deleted later, the built-in page is used.</p>" +
+      "<p><b>Single-page app.</b> Fallback sends unknown page links to your main page so client-side routing works. Always sends every request there.</p>" +
+      "<p><b>Order of lookup.</b> Error, single-page and maintenance files are all searched inside the root folder.</p>" +
+      "<p><b>Plans.</b> These settings need a paid plan.</p>" +
+      "<p><b>Speed of changes.</b> Changes apply at once on one edge and reach the others within about 2 minutes.</p></div>" +
+      '<h3 class="sec">Limits</h3><div class="pills"><span class="pill">' + esc(l.maxErrorPages) + " error pages</span></div>";
+  }
+
+  // ---------- loading
+  function message(title, text, btn, href) {
+    $("content").innerHTML = '<div class="empty"><h2>' + esc(title) + "</h2><p>" + esc(text) + "</p>" +
+      (btn ? '<a class="btn" href="' + esc(href) + '">' + esc(btn) + "</a>" : "") + "</div>";
+  }
+  async function loadAll(pw) {
+    const { res, data: d } = await post("/site/get", { appId: APP_ID, appPassword: pw });
+    if (res.status === 401 && /app password/i.test(d.error || "")) { forgetAppPw(); return showPasswordGate("That app password is wrong. Enter the right one."); }
+    if (res.status === 401) { location.replace("signup.html"); return; }
+    if (!res.ok || !d.success) {
+      if ($("pwMsg")) return say("pwMsg", "err", d.error || "Couldn’t load the HTTP settings.");
+      return message("Couldn’t load the HTTP settings", d.error || "Try again.", "Try again", location.pathname + location.search);
+    }
+    saveAppPw(pw);
+    st = { site: d.site, premium: d.premium, limits: d.allowed };
+    build();
+  }
+  async function load() {
+    const { u, p } = creds();
+    if (!u || !p || !APP_ID) return;
+    $("content").innerHTML = '<div class="layout"><div class="sk"></div></div>';
+    try {
+      const { res, data: d } = await post("/apps/list", {});
+      if (res.status === 401) return message("Please sign up again", "We couldn’t verify your account on this device.", "Sign up", "signup.html");
+      if (!res.ok || !d.success) throw new Error(d.error || "Request failed");
+      app = (d.apps || []).find(a => a.id === APP_ID);
+      if (!app) return message("App not found", "This app doesn’t exist or isn’t yours.", "Back to dashboard", "dashboard.html");
+      renderHeader();
+      const pw = storedAppPw();
+      if (pw) await loadAll(pw); else showPasswordGate();
+    } catch (err) {
+      console.error(err);
+      message("Couldn’t load your app", "Check your connection and try again.", "Try again", location.pathname + location.search);
+    }
+  }
+  load();
+</script>
+</body>
+</html>
