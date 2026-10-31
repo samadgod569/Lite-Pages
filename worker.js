@@ -2164,7 +2164,15 @@ function parseSite(rec) {
     allowedIps: isStrArr(s.allowedIps) ? s.allowedIps : [],
   };
 }
-const getSite = (rec) => parseSite(isPremium(rec) ? rec : {});
+const FREE_ERRORS = ["404"], FREE_SPA_MODES = ["off", "fallback"];
+function getSite(rec) {
+  const s = parseSite(rec);
+  if (isPremium(rec)) return s;
+  const base = parseSite({});
+  const errors = {};
+  for (const k of FREE_ERRORS) if (s.errors[k]) errors[k] = s.errors[k];
+  return { ...base, rootDir: s.rootDir, errors, spa: FREE_SPA_MODES.includes(s.spa.mode) ? s.spa : base.spa };
+}
 const sitePath = (site, rel) => (site.rootDir ? site.rootDir + "/" : "") + rel;
 
 function parseV4(s) {
@@ -2306,7 +2314,7 @@ async function siteReply(env, rec, warnings = []) {
   if (!isPremium(rec)) warnings.push(SITE_PAID_MSG);
   return json({ success: true, premium: isPremium(rec), site, warnings });
 }
-const SITE_PAID_MSG = "Error pages, SPA, maintenance mode, root folder, private site and IP rules are only available on paid plans";
+const SITE_PAID_MSG = "Private site, IP rules, maintenance mode, extra error pages and SPA \"always\" mode are only available on paid plans. Free plans can set a root folder, a 404 page and SPA fallback";
 const siteRoute = (fn) => cookieRoute(async (rec, b, c) => {
   if (!isPremium(rec)) throw new HttpError(403, SITE_PAID_MSG);
   return fn(rec, b, c);
@@ -2315,10 +2323,13 @@ const siteRoute = (fn) => cookieRoute(async (rec, b, c) => {
 USER["/api/site/get"] = cookieRoute(async (rec, b, { env }) => {
   const r = await siteReply(env, rec);
   const d = await r.json();
-  return json({ ...d, defaults: SITE_DEFAULT, allowed: { spaModes: SPA_MODES, maxErrorPages: MAX_ERROR_PAGES, maxIps: MAX_SITE_IPS, maxRetryAfter: MAX_RETRY_AFTER } });
+  return json({ ...d, defaults: SITE_DEFAULT, allowed: { spaModes: SPA_MODES, maxErrorPages: MAX_ERROR_PAGES, maxIps: MAX_SITE_IPS, maxRetryAfter: MAX_RETRY_AFTER, freeErrors: FREE_ERRORS, freeSpaModes: FREE_SPA_MODES } });
 });
 
-USER["/api/site/update"] = siteRoute(async (rec, b, { env }) => {
+USER["/api/site/update"] = cookieRoute(async (rec, b, { env }) => {
+  const paid = isPremium(rec);
+  if (!paid && (b.maintenance !== undefined || b.private !== undefined)) throw new HttpError(403, "Private site and maintenance mode are only available on paid plans");
+  if (!paid && b.spa && b.spa.mode !== undefined && !FREE_SPA_MODES.includes(b.spa.mode)) throw new HttpError(403, 'SPA "always" mode is only available on paid plans');
   const site = structuredClone(parseSite(rec)), warnings = [];
   const isObj = (v) => v && typeof v === "object" && !Array.isArray(v);
   if (b.rootDir !== undefined) {
@@ -2359,16 +2370,17 @@ USER["/api/site/update"] = siteRoute(async (rec, b, { env }) => {
   return siteReply(env, rec, warnings);
 });
 
-USER["/api/site/errors/set"] = siteRoute(async (rec, b, { env }) => {
+USER["/api/site/errors/set"] = cookieRoute(async (rec, b, { env }) => {
   const status = Number(b.status);
   if (!Number.isInteger(status) || status < 400 || status > 599) throw new HttpError(400, "status must be an error code from 400 to 599");
+  if (!isPremium(rec) && !FREE_ERRORS.includes(String(status))) throw new HttpError(403, "Free plans can set a 404 page. Other error pages need a paid plan");
   const site = structuredClone(parseSite(rec));
   if (!site.errors[String(status)] && Object.keys(site.errors).length >= MAX_ERROR_PAGES) throw new HttpError(400, `You can add up to ${MAX_ERROR_PAGES} error pages`);
   site.errors[String(status)] = await checkPage(env, rec, site, b.page, "page");
   await saveSite(env, rec, site);
   return siteReply(env, rec);
 });
-USER["/api/site/errors/delete"] = siteRoute(async (rec, b, { env }) => {
+USER["/api/site/errors/delete"] = cookieRoute(async (rec, b, { env }) => {
   const site = structuredClone(parseSite(rec)), k = String(Number(b.status));
   if (!site.errors[k]) throw new HttpError(404, "No error page is set for that status");
   delete site.errors[k];
