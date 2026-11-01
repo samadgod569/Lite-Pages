@@ -1115,28 +1115,11 @@ USER["/api/apps/domain"] = async ({ env, ctx, body }) => {
 };
 
 USER["/api/apps/delete"] = async ({ env, ctx, body }) => {
-  const { owner, record } = await authApp(env, ctx, body);
+  const { record } = await authApp(env, ctx, body);
   const full = await loadAppFull(env, "a.id = ?1", record.id);
   if (!full) throw new HttpError(404, "App not found");
-
-  let backupsDeleted = 0;
-  if (isPremium(full)) {
-    const r = await callBackend(env, "/api/backups/delete-all", { appId: full.id });
-    if (!backendOk(r) && r.status !== 404) throw backendFail(r);
-    backupsDeleted = (r.data && r.data.deleted) || 0;
-    const m = await callBackend(env, "/api/mysql/delete", { appId: full.id });
-    if (!backendOk(m) && m.status !== 404) throw backendFail(m); // 404 = the app had no database
-  }
-  const f = await (await ROUTES["/api/files/delete-all"]({ env, body: { appId: full.id } })).json();
-  const db = env.INFO, id = full.id;
-  await db.batch([
-    db.prepare("DELETE FROM apps WHERE id = ?1").bind(id),
-    ...["cache_state", "cache_stats", "app_stats", "day_stats", "seen_all", "seen_day", "visits", "request_counts"]
-      .map((t) => db.prepare(`DELETE FROM ${t} WHERE app_id = ?1`).bind(id)),
-  ]);
-  RC.delete(id);
-  await bustApp(env, owner.discordId, hostsOf(env, full), null);
-  return json({ success: true, deleted: { appId: id, name: full.name, files: f.files, bytes: f.bytes, backups: backupsDeleted } });
+  const r = await purgeApp(env, full);
+  return json({ success: true, deleted: { appId: full.id, name: full.name, files: r.files, bytes: r.bytes, backups: r.backups } });
 };
 
 const FS_OPS = {
@@ -1355,6 +1338,273 @@ USER["/api/mysql/delete"] = async ({ env, ctx, body }) => {
   const { record } = await authApp(env, ctx, body);
   await dbBackend(env, "/api/mysql/delete", { appId: record.id });
   return json({ success: true });
+};
+
+// ---- Admin: see and manage every user and app. Same admin key as the other /api/admin/ routes
+// (header x-admin-key or "Authorization: Bearer <key>"). All routes are POST with a JSON body.
+//   /api/admin/stats                                         totals: users, credits, apps per plan
+//   /api/admin/users/list            { search?, limit?, offset? }
+//   /api/admin/users/get             { discordId }           the account plus all of its apps
+//   /api/admin/users/credits         { discordId, amount }   add (or subtract with a negative number)
+//                                    { discordId, set }      or set the exact balance
+//   /api/admin/users/update          { discordId, username?, email? }
+//   /api/admin/users/reset-password  { discordId }           returns the new password once
+//   /api/admin/users/delete          { discordId }           deletes the user and all of their apps
+//   /api/admin/apps/list             { search?, owner?, plan?, limit?, offset? }
+//   /api/admin/apps/get              { appId }               details, file usage and database
+//   /api/admin/apps/update           { appId, name?, plan?, dailyBackup? }
+//   /api/admin/apps/reset-password   { appId }               returns the new app password once
+//   /api/admin/apps/delete           { appId }
+const ADMIN_MAX_PAGE = 200;
+const adminId = (v, what) => {
+  if (typeof v !== "string" || !APP_ID_RE.test(v)) throw new HttpError(400, what + " is required");
+  return v;
+};
+const adminPage = (b) => ({
+  limit: Math.min(Math.max(parseInt(b.limit, 10) || 50, 1), ADMIN_MAX_PAGE),
+  offset: Math.max(parseInt(b.offset, 10) || 0, 0),
+});
+// "%text%" for a LIKE ... ESCAPE '\' search, or null for no filter
+const adminLike = (q) => (typeof q === "string" && q.trim() ? "%" + q.trim().slice(0, 100).replace(/[\\%_]/g, "\\$&") + "%" : null);
+const adminPlan = (v) => { const k = String(v || "").trim().toLowerCase(); return k === "free" ? "Free" : PLANS[k] ? PLANS[k].name : null; };
+const adminInt = (v, what) => {
+  const n = Number(v);
+  if (v === "" || v === null || typeof v === "boolean" || !Number.isInteger(n) || Math.abs(n) > 1e9) throw new HttpError(400, what + " must be a whole number");
+  return n;
+};
+const adminApp = (rec, ownerName) => ({
+  id: rec.id, name: rec.name, owner: rec.owner, ownerUsername: ownerName || null, plan: rec.plan || "Free", createdAt: rec.createdAt,
+  customDomain: rec.customDomain || null, customDomainVerified: rec.customDomain ? rec.customDomainVerified !== false : null,
+  dailyBackup: rec.dailyBackup === true, lastAutoBackup: rec.lastAutoBackup || null, backupLimit: backupLimit(rec),
+});
+async function adminAccount(env, discordId) {
+  const r = await env.INFO.prepare("SELECT * FROM accounts WHERE discord_id = ?1").bind(discordId).first();
+  if (!r) throw new HttpError(404, "User not found");
+  return r;
+}
+async function adminLoadApp(env, appId) {
+  const rec = await loadAppFull(env, "a.id = ?1", appId);
+  if (!rec) throw new HttpError(404, "App not found");
+  return rec;
+}
+
+// Removes an app completely: backups, database, files and every row about it. Used by the user's
+// "delete app" and by the admin routes below.
+async function purgeApp(env, full) {
+  let backups = 0;
+  if (isPremium(full)) {
+    const r = await callBackend(env, "/api/backups/delete-all", { appId: full.id });
+    if (!backendOk(r) && r.status !== 404) throw backendFail(r);
+    backups = (r.data && r.data.deleted) || 0;
+    const m = await callBackend(env, "/api/mysql/delete", { appId: full.id });
+    if (!backendOk(m) && m.status !== 404) throw backendFail(m); // 404 = the app had no database
+  }
+  const f = await (await ROUTES["/api/files/delete-all"]({ env, body: { appId: full.id } })).json();
+  const db = env.INFO, id = full.id;
+  await db.batch([
+    db.prepare("DELETE FROM apps WHERE id = ?1").bind(id),
+    ...["cache_state", "cache_stats", "app_stats", "day_stats", "seen_all", "seen_day", "visits", "request_counts"]
+      .map((t) => db.prepare(`DELETE FROM ${t} WHERE app_id = ?1`).bind(id)),
+  ]);
+  RC.delete(id);
+  await bustApp(env, full.owner, hostsOf(env, full), null);
+  return { files: f.files, bytes: f.bytes, backups };
+}
+
+ROUTES["/api/admin/stats"] = async ({ env }) => {
+  const u = await env.INFO.prepare("SELECT COUNT(*) AS users, COALESCE(SUM(credits), 0) AS credits FROM accounts").first();
+  const { results } = await env.INFO.prepare("SELECT COALESCE(plan, 'Free') AS plan, COUNT(*) AS n FROM apps GROUP BY COALESCE(plan, 'Free')").all();
+  const byPlan = {};
+  let apps = 0;
+  for (const r of results) { byPlan[r.plan] = r.n; apps += r.n; }
+  return ok({ users: u.users, creditsInCirculation: Number(u.credits) || 0, apps, appsByPlan: byPlan });
+};
+
+// ---- users
+ROUTES["/api/admin/users/list"] = async ({ env, body }) => {
+  const q = adminLike(body.search), { limit, offset } = adminPage(body);
+  const where = "(?1 IS NULL OR a.username LIKE ?1 ESCAPE '\\' OR a.email LIKE ?1 ESCAPE '\\' OR a.discord_id LIKE ?1 ESCAPE '\\')";
+  const total = await env.INFO.prepare(`SELECT COUNT(*) AS n FROM accounts a WHERE ${where}`).bind(q).first();
+  const { results } = await env.INFO.prepare(
+    `SELECT a.discord_id, a.username, a.email, a.img_url, a.credits, a.ip, a.created_at, a.last_login,
+            (SELECT COUNT(*) FROM apps p WHERE p.owner = a.discord_id) AS app_count
+     FROM accounts a WHERE ${where} ORDER BY a.created_at DESC LIMIT ?2 OFFSET ?3`
+  ).bind(q, limit, offset).all();
+  return ok({ total: total.n, limit, offset, users: results.map((r) => ({ ...publicAccount(r), appCount: r.app_count })) });
+};
+
+ROUTES["/api/admin/users/get"] = async ({ env, body }) => {
+  const acc = await adminAccount(env, adminId(body.discordId, "discordId"));
+  const { results } = await env.INFO.prepare("SELECT * FROM apps WHERE owner = ?1 ORDER BY created_at").bind(acc.discord_id).all();
+  return ok({ user: publicAccount(acc), apps: results.map((r) => adminApp(rowToApp(r), acc.username)) });
+};
+
+ROUTES["/api/admin/users/credits"] = async ({ env, body }) => {
+  const id = adminId(body.discordId, "discordId");
+  const hasAmount = body.amount !== undefined, hasSet = body.set !== undefined;
+  if (hasAmount === hasSet) throw new HttpError(400, "Send either amount (add, or subtract with a negative number) or set (the exact balance)");
+  const db = env.INFO;
+  let r;
+  if (hasAmount) {
+    const amount = adminInt(body.amount, "amount");
+    r = await db.prepare("UPDATE accounts SET credits = credits + ?1 WHERE discord_id = ?2 AND credits + ?1 >= 0").bind(amount, id).run();
+    if (!r.meta.changes) { await adminAccount(env, id); throw new HttpError(400, "That would take the balance below 0"); }
+    console.log(`[admin] credits ${amount >= 0 ? "+" : ""}${amount} for ${id}`);
+  } else {
+    const value = adminInt(body.set, "set");
+    if (value < 0) throw new HttpError(400, "set can't be negative");
+    r = await db.prepare("UPDATE accounts SET credits = ?1 WHERE discord_id = ?2").bind(value, id).run();
+    if (!r.meta.changes) throw new HttpError(404, "User not found");
+    console.log(`[admin] credits set to ${value} for ${id}`);
+  }
+  const row = await db.prepare("SELECT credits FROM accounts WHERE discord_id = ?1").bind(id).first();
+  return ok({ discordId: id, credits: Number(row.credits) || 0 });
+};
+
+ROUTES["/api/admin/users/update"] = async ({ env, body }) => {
+  const id = adminId(body.discordId, "discordId");
+  const acc = await adminAccount(env, id);
+  const sets = [], binds = [];
+  if (body.username !== undefined) {
+    const name = bodyStr(body.username);
+    if (!name || name.length > 100) throw new HttpError(400, "username must be 1 to 100 characters");
+    sets.push("username = ?"); binds.push(name);
+  }
+  if (body.email !== undefined) {
+    const email = bodyStr(body.email);
+    if (!/^[^\s@]+@[^\s@]+$/.test(email) || email.length > 254) throw new HttpError(400, "Enter a valid email address");
+    sets.push("email = ?"); binds.push(email);
+  }
+  if (!sets.length) throw new HttpError(400, "Nothing to change. Send username and/or email");
+  try { await env.INFO.prepare("UPDATE accounts SET " + sets.join(", ") + " WHERE discord_id = ?").bind(...binds, id).run(); }
+  catch { throw new HttpError(409, "That username or email is already used"); }
+  const now = await adminAccount(env, id);
+  await refreshAuth(env, acc.username); // logins are cached by username
+  if (now.username !== acc.username) await refreshAuth(env, now.username);
+  return ok({ user: publicAccount(now) });
+};
+
+ROUTES["/api/admin/users/reset-password"] = async ({ env, body }) => {
+  const acc = await adminAccount(env, adminId(body.discordId, "discordId"));
+  const plain = newSecret();
+  await env.INFO.prepare("UPDATE accounts SET pw_hash = ?1, pw_enc = ?2 WHERE discord_id = ?3").bind(await hashSecret(env, plain), await lockSecret(env, plain), acc.discord_id).run();
+  await refreshAuth(env, acc.username);
+  return ok({ discordId: acc.discord_id, password: plain }); // shown once here (the user also gets it when they sign in)
+};
+
+ROUTES["/api/admin/users/delete"] = async ({ env, body }) => {
+  const acc = await adminAccount(env, adminId(body.discordId, "discordId"));
+  const { results } = await env.INFO.prepare("SELECT id FROM apps WHERE owner = ?1").bind(acc.discord_id).all();
+  const totals = { apps: 0, files: 0, bytes: 0, backups: 0 };
+  for (const a of results) {
+    const rec = await loadAppFull(env, "a.id = ?1", a.id);
+    if (!rec) continue;
+    const r = await purgeApp(env, rec); // if one fails the user stays and the call can simply be repeated
+    totals.apps++; totals.files += r.files || 0; totals.bytes += r.bytes || 0; totals.backups += r.backups || 0;
+  }
+  await env.INFO.prepare("DELETE FROM accounts WHERE discord_id = ?1").bind(acc.discord_id).run();
+  await refreshAuth(env, acc.username);
+  return ok({ deleted: { discordId: acc.discord_id, username: acc.username, ...totals } });
+};
+
+// ---- apps
+ROUTES["/api/admin/apps/list"] = async ({ env, body }) => {
+  const q = adminLike(body.search), { limit, offset } = adminPage(body);
+  let plan = null;
+  if (body.plan !== undefined && body.plan !== "") { plan = adminPlan(body.plan); if (!plan) throw new HttpError(400, "Unknown plan"); }
+  const owner = body.owner === undefined || body.owner === "" ? null : adminId(body.owner, "owner");
+  const where = `(?1 IS NULL OR a.name LIKE ?1 ESCAPE '\\' OR a.id LIKE ?1 ESCAPE '\\' OR c.username LIKE ?1 ESCAPE '\\')
+    AND (?2 IS NULL OR COALESCE(a.plan, 'Free') = ?2) AND (?3 IS NULL OR a.owner = ?3)`;
+  const from = "FROM apps a LEFT JOIN accounts c ON c.discord_id = a.owner";
+  const total = await env.INFO.prepare(`SELECT COUNT(*) AS n ${from} WHERE ${where}`).bind(q, plan, owner).first();
+  const { results } = await env.INFO.prepare(
+    `SELECT a.*, c.username AS owner_name ${from} WHERE ${where} ORDER BY a.created_at DESC LIMIT ?4 OFFSET ?5`
+  ).bind(q, plan, owner, limit, offset).all();
+  return ok({ total: total.n, limit, offset, apps: results.map((r) => adminApp(rowToApp(r), r.owner_name)) });
+};
+
+ROUTES["/api/admin/apps/get"] = async ({ env, body }) => {
+  const rec = await adminLoadApp(env, adminId(body.appId, "appId"));
+  const acc = await env.INFO.prepare("SELECT username FROM accounts WHERE discord_id = ?1").bind(rec.owner).first();
+  const usage = await (await ROUTES["/api/files/usage"]({ env, body: { appId: rec.id } })).json();
+  let database = null;
+  if (isPremium(rec)) {
+    const r = await callBackend(env, "/api/mysql/info", { appId: rec.id }, { timeout: 30000 });
+    if (backendOk(r)) database = r.data.database;
+  }
+  return ok({ app: adminApp(rec, acc && acc.username), dailyRequestLimit: dailyRequestLimit(rec), files: { count: usage.files, bytes: usage.bytes, limit: usage.limit }, database });
+};
+
+ROUTES["/api/admin/apps/update"] = async ({ env, body }) => {
+  const id = adminId(body.appId, "appId");
+  const rec = await adminLoadApp(env, id);
+  const db = env.INFO, sets = [], binds = [], warnings = [];
+  const oldPlan = rec.plan || "Free";
+  let newName = null, newPlan = null, daily;
+
+  if (body.name !== undefined) {
+    const name = bodyStr(body.name);
+    if (!APP_NAME_RE.test(name)) throw new HttpError(400, NAME_RULE);
+    if (name !== rec.name) {
+      if (await db.prepare("SELECT 1 AS x FROM apps WHERE name = ?1 AND id != ?2").bind(name, id).first()) throw new HttpError(409, "App name is already taken");
+      newName = name; sets.push("name = ?"); binds.push(name);
+    }
+  }
+  if (body.plan !== undefined) {
+    const p = adminPlan(body.plan);
+    if (!p) throw new HttpError(400, "plan must be Free, " + Object.values(PLANS).map((x) => x.name).join(", "));
+    if (p !== oldPlan) {
+      if (p === "Free") {
+        // a free app can't keep a database, so make the admin remove it on purpose
+        const r = await callBackend(env, "/api/mysql/info", { appId: id }, { timeout: 30000 });
+        if (backendOk(r)) throw new HttpError(409, "This app has a database. Delete it first (the app owner can do that, or call the backend's /api/mysql/delete)");
+        if (r.status !== 404) throw backendFail(r);
+        daily = 0;
+      }
+      newPlan = p; sets.push("plan = ?"); binds.push(p);
+    }
+  }
+  if (body.dailyBackup !== undefined) {
+    let en = body.dailyBackup;
+    if (en === "true") en = true;
+    if (en === "false") en = false;
+    if (typeof en !== "boolean") throw new HttpError(400, "dailyBackup must be true or false");
+    if (en && (newPlan || oldPlan) === "Free") throw new HttpError(400, "Daily backups are only available on paid plans");
+    daily = en ? 1 : 0;
+  }
+  if (daily !== undefined) { sets.push("daily_backup = ?"); binds.push(daily); }
+  if (!sets.length) throw new HttpError(400, "Nothing to change. Send name, plan and/or dailyBackup");
+
+  try { await db.prepare("UPDATE apps SET " + sets.join(", ") + " WHERE id = ?").bind(...binds, id).run(); }
+  catch { throw new HttpError(409, "App name is already taken"); }
+
+  if (newPlan && newPlan !== "Free") {
+    // keep the database storage limit in step with the new plan (404 = the app has no database)
+    const r = await callBackend(env, "/api/mysql/set-plan", { appId: id, plan: newPlan }, { timeout: 30000 });
+    if (!backendOk(r) && r.status !== 404) warnings.push("The database storage limit could not be updated: " + ((r.data && r.data.error) || "backend error"));
+  }
+  let cur = await adminLoadApp(env, id);
+  const out = { warnings };
+  if (newName && cur.customDomain) out.domain = await recheckDomain(env, cur); // the CNAME target depends on the name
+  await bustApp(env, rec.owner, [rec.name.toLowerCase() + "." + appDomainOf(env), rec.customDomain], id);
+  cur = await adminLoadApp(env, id);
+  const acc = await db.prepare("SELECT username FROM accounts WHERE discord_id = ?1").bind(cur.owner).first();
+  out.app = adminApp(cur, acc && acc.username);
+  return ok(out);
+};
+
+ROUTES["/api/admin/apps/reset-password"] = async ({ env, body }) => {
+  const rec = await adminLoadApp(env, adminId(body.appId, "appId"));
+  const plain = newSecret();
+  await env.INFO.prepare("UPDATE apps SET pw_hash = ?1, pw_enc = ?2 WHERE id = ?3").bind(await hashSecret(env, plain), await lockSecret(env, plain), rec.id).run();
+  await bustApp(env, rec.owner, [], rec.id);
+  return ok({ appId: rec.id, appPassword: plain });
+};
+
+ROUTES["/api/admin/apps/delete"] = async ({ env, body }) => {
+  const rec = await adminLoadApp(env, adminId(body.appId, "appId"));
+  const r = await purgeApp(env, rec);
+  return ok({ deleted: { appId: rec.id, name: rec.name, ...r } });
 };
 
 ROUTES["/api/admin/apps/due-backup"] = async ({ env, body }) => {
