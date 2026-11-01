@@ -784,8 +784,11 @@ function getAdminKey(env) {
   return String(env.ADMIN_KEY);
 }
 async function callBackend(env, path, payload, { raw = false, timeout = 120000 } = {}) {
-  const backend = await setting(env, "BACKEND_URL");
-  if (!backend) throw new HttpError(500, "BACKEND_URL is not set (KV key or env var)");
+  // MySQL and backups can live on their own servers: MYSQL_URL / BACKUPS_URL win for their routes,
+  // BACKEND_URL is the fallback (and is used for everything else, like the DNS check).
+  const kind = path.startsWith("/api/mysql/") ? "MYSQL_URL" : path.startsWith("/api/backups/") ? "BACKUPS_URL" : null;
+  const backend = (kind && (await setting(env, kind))) || (await setting(env, "BACKEND_URL"));
+  if (!backend) throw new HttpError(500, (kind ? kind + " (or BACKEND_URL)" : "BACKEND_URL") + " is not set (KV key or env var)");
   const key = getAdminKey(env);
   let r;
   try {
