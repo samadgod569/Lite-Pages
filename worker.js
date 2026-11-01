@@ -1124,6 +1124,8 @@ USER["/api/apps/delete"] = async ({ env, ctx, body }) => {
     const r = await callBackend(env, "/api/backups/delete-all", { appId: full.id });
     if (!backendOk(r) && r.status !== 404) throw backendFail(r);
     backupsDeleted = (r.data && r.data.deleted) || 0;
+    const m = await callBackend(env, "/api/mysql/delete", { appId: full.id });
+    if (!backendOk(m) && m.status !== 404) throw backendFail(m); // 404 = the app had no database
   }
   const f = await (await ROUTES["/api/files/delete-all"]({ env, body: { appId: full.id } })).json();
   const db = env.INFO, id = full.id;
@@ -1275,6 +1277,84 @@ USER["/api/backups/auto"] = async ({ env, ctx, body }) => {
   await env.INFO.prepare("UPDATE apps SET daily_backup = ?1 WHERE id = ?2").bind(en ? 1 : 0, cur.id).run();
   await bustApp(env, owner.discordId, [], cur.id);
   return json(status(await loadAppFull(env, "a.id = ?1", cur.id)));
+};
+
+// ---- MySQL databases. The backend server holds the databases; the worker checks the user, plan and credits.
+// Limits come from the plan (Basic 256mb, Standard 512mb, Pro 768mb, Enterprise 1024mb); extra storage is
+// bought in 256mb steps at 50 credits each. All routes take username, password, appId and appPassword.
+//   /api/mysql/create          { dbName, dbPassword? }   dbPassword is generated and returned once if left out
+//   /api/mysql/info
+//   /api/mysql/upgrade         { multiple }              +256mb per step, 50 credits per step
+//   /api/mysql/reset-password  { dbPassword }
+//   /api/mysql/delete
+const DB_STEP_MB = 256;
+const DB_STEP_PRICE_CREDITS = 50;
+const DB_MAX_STEPS = 40;
+const dbPaidOnly = (rec) => { if (!isPremium(rec)) throw new HttpError(403, "Databases are only available on paid plans"); };
+async function dbBackend(env, path, payload) {
+  const r = await callBackend(env, path, payload, { timeout: 30000 });
+  if (!backendOk(r)) throw backendFail(r);
+  return r.data;
+}
+const dbPricing = { stepMb: DB_STEP_MB, stepPriceCredits: DB_STEP_PRICE_CREDITS, maxStepsPerPurchase: DB_MAX_STEPS };
+
+USER["/api/mysql/create"] = async ({ env, ctx, body }) => {
+  const { record } = await authApp(env, ctx, body);
+  dbPaidOnly(record);
+  const given = body.dbPassword !== undefined ? body.dbPassword : body.DBpassword;
+  const generated = given === undefined || given === null || given === "";
+  const dbPassword = generated ? newSecret() : given;
+  const data = await dbBackend(env, "/api/mysql/create", { appId: record.id, plan: record.plan, dbName: body.dbName, password: dbPassword });
+  const out = { success: true, database: data.database, ...dbPricing };
+  if (generated) out.dbPassword = dbPassword; // shown once, it is not stored anywhere
+  return json(out, 201);
+};
+
+USER["/api/mysql/info"] = async ({ env, ctx, body }) => {
+  const { record } = await authApp(env, ctx, body);
+  dbPaidOnly(record);
+  const data = await dbBackend(env, "/api/mysql/info", { appId: record.id });
+  return json({ success: true, database: data.database, ...dbPricing });
+};
+
+USER["/api/mysql/upgrade"] = async ({ env, ctx, body }) => {
+  const { owner, record } = await authApp(env, ctx, body);
+  dbPaidOnly(record);
+  const steps = Number(body.multiple);
+  if (!Number.isInteger(steps) || steps < 1 || steps > DB_MAX_STEPS) throw new HttpError(400, `multiple must be a whole number from 1 to ${DB_MAX_STEPS}`);
+  const cost = steps * DB_STEP_PRICE_CREDITS, db = env.INFO;
+
+  await dbBackend(env, "/api/mysql/info", { appId: record.id }); // no database yet: fail before taking any credits
+
+  const paid = await db.prepare("UPDATE accounts SET credits = credits - ?1 WHERE discord_id = ?2 AND credits >= ?1").bind(cost, owner.discordId).run();
+  if (!paid.meta.changes) {
+    const a = await db.prepare("SELECT credits FROM accounts WHERE discord_id = ?1").bind(owner.discordId).first();
+    throw new HttpError(402, `Adding ${steps * DB_STEP_MB}mb costs ${cost} credits and you have ${a ? Number(a.credits) || 0 : 0}`);
+  }
+  const row = await db.prepare("SELECT credits FROM accounts WHERE discord_id = ?1").bind(owner.discordId).first();
+  const credits = Number(row && row.credits) || 0;
+
+  let data;
+  try { data = await dbBackend(env, "/api/mysql/upgrade", { appId: record.id, multiple: steps, credits: credits + cost }); }
+  catch (err) {
+    // the upgrade did not happen, so give the credits back
+    await db.prepare("UPDATE accounts SET credits = credits + ?1 WHERE discord_id = ?2").bind(cost, owner.discordId).run();
+    throw err;
+  }
+  return json({ success: true, creditsCharged: cost, credits, reactivated: data.reactivated === true, database: data.database, ...dbPricing });
+};
+
+USER["/api/mysql/reset-password"] = async ({ env, ctx, body }) => {
+  const { record } = await authApp(env, ctx, body);
+  dbPaidOnly(record);
+  await dbBackend(env, "/api/mysql/reset-password", { appId: record.id, password: body.dbPassword });
+  return json({ success: true });
+};
+
+USER["/api/mysql/delete"] = async ({ env, ctx, body }) => {
+  const { record } = await authApp(env, ctx, body);
+  await dbBackend(env, "/api/mysql/delete", { appId: record.id });
+  return json({ success: true });
 };
 
 ROUTES["/api/admin/apps/due-backup"] = async ({ env, body }) => {
