@@ -88,12 +88,6 @@
   .lock svg{width:34px;height:34px;flex-shrink:0;color:var(--accent)}
   .lock h2,.empty h2{margin:0 0 2px;font-size:17px;color:var(--text);font-weight:600}
   .lock p,.empty p{margin:0;font-size:14px;color:var(--muted)}
-  .gate{max-width:440px;margin:40px auto 0;text-align:center;padding:28px 24px}
-  .gate h2{font-size:20px;color:var(--text);font-weight:600;margin:0 0 6px}
-  .gate p{margin:0 0 16px;color:var(--muted);font-size:14px}
-  .gate form{display:flex;gap:10px;flex-wrap:wrap}
-  .gate input{flex:1 1 200px}
-  .err{color:var(--danger);font-size:13px;margin:10px 0 0;min-height:1em}
   .sk{border:1px solid var(--line);border-radius:18px;height:110px;background:linear-gradient(100deg,var(--soft) 30%,var(--line) 50%,var(--soft) 70%);background-size:300% 100%;animation:shine 1.4s linear infinite}
   @keyframes shine{to{background-position:-300% 0}}
   h3{font-size:18px;letter-spacing:-.02em;margin:26px 0 12px}
@@ -139,31 +133,34 @@
 </dialog>
 
 <script>
-  const API_BASE = "https://lite-pages.thecodemonai.workers.dev/api";
+  const API_BASE = "https://gen1-litepages.wisp.uno/api";
   const APP_ID = new URLSearchParams(location.search).get("id") || "";
   const $ = id => document.getElementById(id);
   const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
-  fetch("assets/panel-essentials.html").then(r => r.text()).then(html => {
-    const box = $("panelEssentials");
-    box.innerHTML = html;
-    box.querySelectorAll("script").forEach(old => {
-      const s = document.createElement("script");
-      s.textContent = old.textContent;
-      old.replaceWith(s);
-    });
-  }).catch(e => console.error("Could not load panel-essentials.html", e));
-  fetch("assets/footer.html").then(r => r.ok ? r.text() : "").then(h => { $("footer").innerHTML = h; }).catch(() => {});
+  function inject(id, url) {
+    fetch(url).then(r => r.ok ? r.text() : "").then(html => {
+      const box = $(id);
+      box.innerHTML = html;
+      box.querySelectorAll("script").forEach(old => {
+        const s = document.createElement("script");
+        [...old.attributes].forEach(a => s.setAttribute(a.name, a.value));
+        s.textContent = old.textContent;
+        old.replaceWith(s);
+      });
+    }).catch(e => console.error("Could not load " + url, e));
+  }
+  inject("panelEssentials", "../assets/panel-essentials.html");
+  inject("footer", "../assets/footer-panel.html");
+
+  // same key the Database page uses
+  const storedAppPw = () => { try { return localStorage.getItem("lp-app-password:" + APP_ID) || ""; } catch (e) { return ""; } };
+  const forgetAppPw = () => { try { localStorage.removeItem("lp-app-password:" + APP_ID); } catch (e) {} };
 
   function creds() {
     try { return { u: localStorage.getItem("lp-username"), p: localStorage.getItem("lp-password") }; }
     catch (e) { return { u: null, p: null }; }
   }
-  // The app password is never saved on the server for us, so keep it only for this tab.
-  const PW_KEY = "lp-apppw-" + APP_ID;
-  const getPw = () => { try { return sessionStorage.getItem(PW_KEY) || ""; } catch (e) { return ""; } };
-  const setPw = v => { try { v ? sessionStorage.setItem(PW_KEY, v) : sessionStorage.removeItem(PW_KEY); } catch (e) {} };
-
   const ICON = {
     box: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7.5 12 3 4 7.5v9L12 21l8-4.5zM12 5.3l5.6 3.1L12 11.5 6.4 8.4zM6 10.1l5 2.8v5.9l-5-2.8zm7 8.7v-5.9l5-2.8v5.9z"/></svg>',
     down: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 3h2v9.2l3.6-3.6L18 10l-6 6-6-6 1.4-1.4L11 12.2zM5 18h14v2H5z"/></svg>',
@@ -211,24 +208,19 @@
     return fetch(API_BASE + path, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(Object.assign({ username: u, password: p, appId: APP_ID, appPassword: getPw() }, extra || {}))
+      body: JSON.stringify(Object.assign({ username: u, password: p, appId: APP_ID, appPassword: storedAppPw() }, extra || {}))
     });
   }
   async function json(res) { try { return await res.json(); } catch (e) { return {}; } }
 
   function authFail(res, data) {
-    if (res.status === 401 && /app password/i.test(data.error || "")) { setPw(""); renderGate("That app password isn't right. Try again."); return true; }
+    if (res.status === 401 && /app password/i.test(data.error || "")) { forgetAppPw(); noPassword(); return true; }
     if (res.status === 401) { location.replace("signup.html"); return true; }
     return false;
   }
 
-  function renderGate(error) {
-    $("content").innerHTML = '<section class="card gate"><h2>Enter your app password</h2>' +
-      "<p>Backups are protected by the password you got when you created this app. It's only kept in this tab.</p>" +
-      '<form id="gateForm"><input type="password" id="gatePw" placeholder="App password" autocomplete="off" required>' +
-      '<button class="btn" type="submit">Unlock</button></form><p class="err" id="gateErr">' + esc(error || "") + "</p></section>";
-    $("gateForm").addEventListener("submit", e => { e.preventDefault(); setPw($("gatePw").value.trim()); loadBackups(); });
-    $("gatePw").focus();
+  function noPassword() {
+    message("App password not found on this device", "Backups use the same app password as the Database page. Enter it there once and it is remembered here too.", "Open Database", "database.html?id=" + encodeURIComponent(APP_ID));
   }
 
   function renderHeader() {
@@ -397,7 +389,7 @@
         $("content").innerHTML = '<div class="lock">' + ICON.lock + "<div><h2>Backups are available on paid plans</h2><p>Upgrade to Basic, Standard, Pro or Enterprise to keep 5 to 11 backups, restore them any time and turn on automatic daily backups.</p></div></div>";
         return;
       }
-      if (!getPw()) return renderGate();
+      if (!storedAppPw()) return noPassword();
       loadBackups();
     } catch (err) {
       console.error(err);
