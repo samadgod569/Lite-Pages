@@ -440,7 +440,7 @@ async function sha256(s) {
 }
 async function keyMatches(env, k) {
   if (typeof k !== "string" || !k) return false;
-  const adminKey = await env.KV.get("ADMIN_KEY");
+  const adminKey = env.ADMIN_KEY; // Worker secret, not KV
   if (!adminKey) return false;
   const [a, b] = await Promise.all([sha256(k), sha256(String(adminKey))]);
   let d = 0;
@@ -707,7 +707,7 @@ const PLANS = {
 const FREE_DAILY_REQUESTS = 100_000;
 const APP_NAME_RE = /^[a-z0-9][a-z0-9_-]{2,31}$/;
 const NAME_RULE = "App name must be 3-32 lowercase characters: a-z, 0-9, - or _ (cannot start with - or _)";
-const DEFAULT_CORS = "https://litepages.host,https://lite-pages.thecodemonai.workers.dev";
+const DEFAULT_CORS = "https://code-mon-space.shop,https://litepages.host,https://lite-pages.thecodemonai.workers.dev";
 const AUTH_TTL = 300, HOST_TTL = 120, NONE_TTL = 30;
 const INFO_KEEP_DAYS = 7;
 const MAX_RAW_VISITS_PER_APP = 5000;
@@ -719,7 +719,8 @@ const clip = (v) => (v === undefined || v === null || v === "" ? null : String(v
 const isPremium = (rec) => (rec.plan || "Free") !== "Free";
 const backupLimit = (rec) => { const p = PLANS[String(rec.plan || "").toLowerCase()]; return p ? p.backups : 0; };
 const dailyRequestLimit = (rec) => { const p = PLANS[String(rec.plan || "").toLowerCase()]; return p ? p.dailyRequests : FREE_DAILY_REQUESTS; };
-const appDomainOf = (env) => String(env.APP_DOMAIN || "fastsite.host").toLowerCase();
+// People's sites live on <name>.<app domain>; the bare app domain serves the dashboard/API. env.APP_DOMAIN overrides this.
+const appDomainOf = (env) => String(env.APP_DOMAIN || "code-mon-space.shop").toLowerCase();
 const originsOf = (env) => String(env.CORS_ORIGINS || DEFAULT_CORS).split(",").map((s) => s.trim()).filter(Boolean);
 
 function isDashboardHost(env, host) {
@@ -776,18 +777,16 @@ function safeEq(a, b) {
 }
 async function sha256hex(s) { return toHex(await sha256(s)); }
 
-let _ak = { v: null, t: 0 };
-async function getAdminKey(env) {
-  if (_ak.v && Date.now() - _ak.t < 60000) return _ak.v;
-  const v = await env.KV.get("ADMIN_KEY");
-  if (!v) throw new HttpError(500, "ADMIN_KEY is not set in KV");
-  _ak = { v: String(v), t: Date.now() };
-  return _ak.v;
+// The admin key is the Worker secret ADMIN_KEY (wrangler secret put ADMIN_KEY). It is used for admin requests,
+// the backend calls and the SSR renderer.
+function getAdminKey(env) {
+  if (!env.ADMIN_KEY) throw new HttpError(500, "ADMIN_KEY is not set (add it as a Worker secret)");
+  return String(env.ADMIN_KEY);
 }
 async function callBackend(env, path, payload, { raw = false, timeout = 120000 } = {}) {
   const backend = await setting(env, "BACKEND_URL");
   if (!backend) throw new HttpError(500, "BACKEND_URL is not set (KV key or env var)");
-  const key = await getAdminKey(env);
+  const key = getAdminKey(env);
   let r;
   try {
     r = await fetch(backend.replace(/\/+$/, "") + path, {
@@ -1845,12 +1844,15 @@ USER["/api/hsts/reset"] = cookieRoute(async (rec, b, { env }) => {
 const CORS_MODES = ["all", "specific", "block"];
 const CORS_METHODS = ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"];
 const CORS_HEADERS_POPULAR = ["Content-Type", "Authorization", "Accept", "X-Requested-With", "X-API-Key", "X-Auth-Token", "Cache-Control", "If-None-Match", "If-Modified-Since", "Range"];
+const CORS_EXPOSE_POPULAR = ["Content-Length", "Content-Type", "X-Request-ID", "ETag", "Last-Modified", "Cache-Control", "Content-Range", "Content-Disposition", "Location", "Retry-After"];
 const CORS_DEFAULT = {
   mode: "all", origins: [],
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
   headers: ["Content-Type", "Authorization", "X-Requested-With"],
+  credentials: false,
+  exposeHeaders: [],
 };
-const MAX_CORS_ORIGINS = 20, MAX_CORS_HEADERS = 40;
+const MAX_CORS_ORIGINS = 20, MAX_CORS_HEADERS = 40, MAX_CORS_EXPOSE = 40;
 const HEADER_NAME_RE = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
 const isStrArr = (v) => Array.isArray(v) && v.every((x) => typeof x === "string");
 
@@ -1861,6 +1863,9 @@ function getCors(rec) {
     origins: isStrArr(c.origins) ? c.origins : [],
     methods: isStrArr(c.methods) ? c.methods : CORS_DEFAULT.methods,
     headers: isStrArr(c.headers) ? c.headers : CORS_DEFAULT.headers,
+    // credentials can never go with Allow-Origin "*", so it only counts in "specific" mode
+    credentials: c.credentials === true && c.mode === "specific",
+    exposeHeaders: isStrArr(c.exposeHeaders) ? c.exposeHeaders : CORS_DEFAULT.exposeHeaders,
   };
 }
 function corsView(rec) {
@@ -1869,6 +1874,8 @@ function corsView(rec) {
     sent["Access-Control-Allow-Origin"] = c.mode === "all" ? "*" : "<the visitor's origin, if it is on your list>";
     sent["Access-Control-Allow-Methods"] = c.methods.join(", ");
     if (c.headers.length) sent["Access-Control-Allow-Headers"] = c.headers.join(", ");
+    if (c.credentials) sent["Access-Control-Allow-Credentials"] = "true";
+    if (c.exposeHeaders.length) sent["Access-Control-Expose-Headers"] = c.exposeHeaders.join(", ");
   }
   return { ...c, sent };
 }
@@ -1885,6 +1892,9 @@ function addCors(h, rec, request) {
   }
   h.set("Access-Control-Allow-Methods", c.methods.join(", "));
   if (c.headers.length) h.set("Access-Control-Allow-Headers", c.headers.join(", "));
+  // Only reached with a concrete origin (never "*") when credentials is on
+  if (c.credentials && c.mode === "specific") h.set("Access-Control-Allow-Credentials", "true");
+  if (c.exposeHeaders.length) h.set("Access-Control-Expose-Headers", c.exposeHeaders.join(", "));
 }
 
 function normOrigin(v) {
@@ -1894,6 +1904,22 @@ function normOrigin(v) {
     throw new HttpError(400, `"${String(v).slice(0, 80)}" must be only a scheme, host and optional port, like https://example.com`);
   }
   return u.origin;
+}
+
+function parseHeaderList(raw, field, max, popular) {
+  if (!isStrArr(raw)) throw new HttpError(400, `${field} must be a list of header names`);
+  const seen = new Set(), list = [];
+  for (const item of raw) {
+    const n = item.trim();
+    if (!n) continue;
+    if (n.length > 100 || !HEADER_NAME_RE.test(n)) throw new HttpError(400, `"${n.slice(0, 40)}" is not a valid header name`);
+    const key = n.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    list.push(popular.find((p) => p.toLowerCase() === key) || n);
+  }
+  if (list.length > max) throw new HttpError(400, `You can list up to ${max} ${field}`);
+  return list;
 }
 
 function parseCors(cur, b) {
@@ -1916,24 +1942,21 @@ function parseCors(cur, b) {
     if (!m.length) throw new HttpError(400, 'Allow at least one method, or set mode to "block"');
     out.methods = CORS_METHODS.filter((x) => m.includes(x));
   }
-  if (b.headers !== undefined) {
-    if (!isStrArr(b.headers)) throw new HttpError(400, "headers must be a list of header names");
-    const seen = new Set(), list = [];
-    for (const raw of b.headers) {
-      const n = raw.trim();
-      if (!n) continue;
-      if (n.length > 100 || !HEADER_NAME_RE.test(n)) throw new HttpError(400, `"${n.slice(0, 40)}" is not a valid header name`);
-      const key = n.toLowerCase();
-      if (seen.has(key)) continue;
-      seen.add(key);
-      list.push(CORS_HEADERS_POPULAR.find((p) => p.toLowerCase() === key) || n);
-    }
-    if (list.length > MAX_CORS_HEADERS) throw new HttpError(400, `You can allow up to ${MAX_CORS_HEADERS} headers`);
-    out.headers = list;
+  if (b.headers !== undefined) out.headers = parseHeaderList(b.headers, "headers", MAX_CORS_HEADERS, CORS_HEADERS_POPULAR);
+  if (b.exposeHeaders !== undefined) out.exposeHeaders = parseHeaderList(b.exposeHeaders, "exposeHeaders", MAX_CORS_EXPOSE, CORS_EXPOSE_POPULAR);
+  if (b.credentials !== undefined) {
+    if (typeof b.credentials !== "boolean") throw new HttpError(400, "credentials must be true or false");
+    out.credentials = b.credentials;
   }
   if (out.mode === "specific" && !out.origins.length) throw new HttpError(400, 'Add at least one origin, or use mode "all" or "block"');
+  if (out.credentials) {
+    if (out.mode === "all") throw new HttpError(400, 'credentials needs a real origin: browsers reject Allow-Credentials with Allow-Origin "*". Set mode to "specific" and list your origins, or set credentials to false');
+    // "*" is taken literally (not as a wildcard) once credentials are on
+    if ([...(out.headers || []), ...(out.exposeHeaders || [])].includes("*")) throw new HttpError(400, 'Remove "*" from headers / exposeHeaders: it is not a wildcard when credentials is true. List the header names instead');
+  }
   if (out.mode === "block") warnings.push("Allow-Origin is not sent, so browsers stop other websites from reading your files");
   if (out.mode === "all") warnings.push("Any website can read your files from the browser");
+  if (out.credentials && out.mode === "specific") warnings.push("Listed websites can send and read cookies and logins with their requests, so only list sites you trust");
   return { cors: out, warnings };
 }
 
@@ -1948,7 +1971,7 @@ async function saveCors(env, rec, cors) {
   await putHostEntries(env, rec);
 }
 
-const corsAllowed = { modes: CORS_MODES, methods: CORS_METHODS, popularHeaders: CORS_HEADERS_POPULAR, maxOrigins: MAX_CORS_ORIGINS, maxHeaders: MAX_CORS_HEADERS };
+const corsAllowed = { modes: CORS_MODES, methods: CORS_METHODS, popularHeaders: CORS_HEADERS_POPULAR, popularExposeHeaders: CORS_EXPOSE_POPULAR, maxOrigins: MAX_CORS_ORIGINS, maxHeaders: MAX_CORS_HEADERS, maxExposeHeaders: MAX_CORS_EXPOSE };
 
 USER["/api/cors/get"] = cookieRoute(async (rec) => json({ success: true, cors: corsView(rec), defaults: CORS_DEFAULT, allowed: corsAllowed }));
 
@@ -2145,20 +2168,52 @@ USER["/api/frame/reset"] = cookieRoute(async (rec, b, { env }) => {
 
 const SPA_MODES = ["off", "fallback", "always"];
 const MAX_ERROR_PAGES = 20, MAX_SITE_IPS = 200, MAX_RETRY_AFTER = 30 * 86400;
+
+// ---------- server-side rendering (SSR)
+// Owners list HTML files (paths from the top of the app). Those files are sent to the renderer
+// service before they are returned. Placeholder per-plan limits, indexed by cacheTier(): Free has none (paid feature).
+//   cpuMs / ramMb / wallMs / settleMs : sent to the renderer for EVERY render (the renderer stops a page that goes over).
+//   cpuMsDay                          : total renderer CPU time one app may use per day (UTC day), in ms.
+//   ramMbSecDay                       : total RAM one app may use per day, in MB-seconds (peak RAM in MB x seconds the render took).
+// Pages served from the edge cache cost nothing. When a daily total is used up, pages are served without rendering until 00:00 UTC.
+const SSR_DEFAULT_URL = "https://gen3-litepages.wisp.uno";
+const SSR_LIMITS = [
+  null,
+  { files: 5,  cpuMs: 1000, ramMb: 128, wallMs: 5000,  settleMs: 1500, cpuMsDay: 300_000,   ramMbSecDay: 50_000 },
+  { files: 15, cpuMs: 2000, ramMb: 192, wallMs: 8000,  settleMs: 2500, cpuMsDay: 1_200_000, ramMbSecDay: 250_000 },
+  { files: 30, cpuMs: 4000, ramMb: 256, wallMs: 15000, settleMs: 3000, cpuMsDay: 4_800_000, ramMbSecDay: 1_200_000 },
+];
+const SSR_MAX_COOKIES = 20, SSR_MAX_QUERY = 2048, SSR_MAX_PARAMS = 50, SSR_MAX_INPUT = 1.5 * MB;
+const SSR_COOKIE_RE = /^[!#$%&'*+.^_`|~0-9A-Za-z-]{1,64}$/;
+const SSR_PAID_MSG = "Server-side rendering is only available on paid plans";
+const ssrLimitsView = (l) => ({ perRender: { cpuMs: l.cpuMs, ramMb: l.ramMb, wallMs: l.wallMs, settleMs: l.settleMs }, perDay: { cpuMs: l.cpuMsDay, ramMbSec: l.ramMbSecDay } });
+const ssrAllowed = (rec) => { const l = SSR_LIMITS[cacheTier(rec)]; return l ? { maxFiles: l.files, maxCookies: SSR_MAX_COOKIES, ...ssrLimitsView(l) } : null; };
 const SITE_DEFAULT = {
   rootDir: "", errors: {},
   spa: { mode: "off", page: "index.html" },
   maintenance: { enabled: false, page: null, retryAfter: 3600 },
   private: false, blockedIps: [], allowedIps: [],
+  ssr: { files: [], query: true, cookies: [] },
 };
+// Error pages, the SPA page and the maintenance page are paths from the TOP of the app
+// (not from rootDir). That lets people keep them outside the public folder, or put them
+// inside it and use the full path, like "public/404.html".
+// Sites saved before this change stored those paths relative to rootDir (no pagesV marker),
+// so they are converted once here; the next save stores the converted paths with pagesV: 2.
 function parseSite(rec) {
   const s = rec.site && typeof rec.site === "object" ? rec.site : {};
   const sp = s.spa && typeof s.spa === "object" ? s.spa : {}, m = s.maintenance && typeof s.maintenance === "object" ? s.maintenance : {};
+  const root = typeof s.rootDir === "string" ? s.rootDir : "";
+  const legacy = !!root && s.pagesV !== 2;
+  const pre = (p) => (legacy && typeof p === "string" && p ? root + "/" + p : p);
+  const rawErrors = s.errors && typeof s.errors === "object" && !Array.isArray(s.errors) ? s.errors : {};
   return {
-    rootDir: typeof s.rootDir === "string" ? s.rootDir : "",
-    errors: s.errors && typeof s.errors === "object" && !Array.isArray(s.errors) ? s.errors : {},
-    spa: { mode: SPA_MODES.includes(sp.mode) ? sp.mode : "off", page: typeof sp.page === "string" && sp.page ? sp.page : "index.html" },
-    maintenance: { enabled: m.enabled === true, page: typeof m.page === "string" && m.page ? m.page : null, retryAfter: Number.isInteger(m.retryAfter) ? m.retryAfter : 3600 },
+    pagesV: 2,
+    rootDir: root,
+    errors: Object.fromEntries(Object.entries(rawErrors).map(([k, v]) => [k, pre(v)])),
+    spa: { mode: SPA_MODES.includes(sp.mode) ? sp.mode : "off", page: pre(typeof sp.page === "string" && sp.page ? sp.page : "index.html") },
+    maintenance: { enabled: m.enabled === true, page: typeof m.page === "string" && m.page ? pre(m.page) : null, retryAfter: Number.isInteger(m.retryAfter) ? m.retryAfter : 3600 },
+    ssr: (() => { const q = s.ssr && typeof s.ssr === "object" ? s.ssr : {}; return { files: isStrArr(q.files) ? q.files : [], query: q.query !== false, cookies: isStrArr(q.cookies) ? q.cookies : [] }; })(),
     private: s.private === true,
     blockedIps: isStrArr(s.blockedIps) ? s.blockedIps : [],
     allowedIps: isStrArr(s.allowedIps) ? s.allowedIps : [],
@@ -2173,7 +2228,6 @@ function getSite(rec) {
   for (const k of FREE_ERRORS) if (s.errors[k]) errors[k] = s.errors[k];
   return { ...base, rootDir: s.rootDir, errors, spa: FREE_SPA_MODES.includes(s.spa.mode) ? s.spa : base.spa };
 }
-const sitePath = (site, rel) => (site.rootDir ? site.rootDir + "/" : "") + rel;
 
 function parseV4(s) {
   const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(s);
@@ -2256,7 +2310,7 @@ function cleanRel(v) {
 }
 async function checkPage(env, rec, site, rel, what) {
   const clean = cleanRel(rel);
-  if (!(await findFile(env, rec.id, [sitePath(site, clean)]))) throw new HttpError(400, `${what}: the file "/${sitePath(site, clean)}" does not exist in your app`);
+  if (!(await findFile(env, rec.id, [clean]))) throw new HttpError(400, `${what}: the file "/${clean}" does not exist in your app`);
   return clean;
 }
 async function existingFiles(env, appId, names) {
@@ -2271,8 +2325,99 @@ async function folderHasFiles(env, appId, dir) {
   return !!(await env.DB.prepare("SELECT 1 AS x FROM app_files WHERE appid = ?1 AND file_path >= ?2 AND file_path < ?3 LIMIT 1").bind(appId, dir + "/", dir + "0").first());
 }
 
+// What the render may see: the query string (sorted, so the same params in any order share one cache entry)
+// and ONLY the cookies the owner listed. `key` is "" when there is neither, otherwise a hash used in cache keys and ETags.
+async function ssrInput(request, url, ssr) {
+  let search = "";
+  if (ssr.query && url.search.length > 1) {
+    if (url.search.length > SSR_MAX_QUERY) return { err: [414, "Address too long", "The web address is too long."] };
+    const q = new URLSearchParams(url.search);
+    if ([...q.keys()].length > SSR_MAX_PARAMS) return { err: [400, "Bad request", "Too many query parameters."] };
+    q.sort();
+    search = "?" + q.toString();
+  }
+  const cookies = new Map();
+  if (ssr.cookies.length) {
+    const want = new Set(ssr.cookies);
+    for (const part of String(request.headers.get("cookie") || "").split(";")) {
+      const i = part.indexOf("=");
+      if (i < 1) continue;
+      const k = part.slice(0, i).trim(), v = part.slice(i + 1).trim();
+      if (want.has(k) && !cookies.has(k) && v.length <= 4096) cookies.set(k, v);
+    }
+  }
+  const names = [...cookies.keys()].sort();
+  const key = !search && !names.length ? "" : (await sha256hex(search + "\n" + names.map((n) => n + "=" + cookies.get(n)).join("\n"))).slice(0, 20);
+  return { search, cookies, key };
+}
+// Daily renderer usage per app (D1 / env.INFO). The table is created on first use. One row per app per UTC day.
+const SSR_USAGE_DDL = "CREATE TABLE IF NOT EXISTS ssr_usage (app_id TEXT NOT NULL, day TEXT NOT NULL, cpu_ms INTEGER NOT NULL DEFAULT 0, ram_mb_sec INTEGER NOT NULL DEFAULT 0, renders INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (app_id, day))";
+const noSuchTable = (e) => /no such table/i.test(String((e && e.message) || e));
+async function ssrUsageToday(env, rec) {
+  const day = todayKey();
+  let r = null;
+  try { r = await env.INFO.prepare("SELECT cpu_ms, ram_mb_sec, renders FROM ssr_usage WHERE app_id = ?1 AND day = ?2").bind(rec.id, day).first(); }
+  catch (e) { if (!noSuchTable(e)) throw e; await env.INFO.prepare(SSR_USAGE_DDL).run(); }
+  return { day, cpuMs: r ? r.cpu_ms : 0, ramMbSec: r ? r.ram_mb_sec : 0, renders: r ? r.renders : 0 };
+}
+async function addSsrUsage(env, rec, cpuMs, ramMbSec) {
+  const run = () => env.INFO.prepare("INSERT INTO ssr_usage (app_id, day, cpu_ms, ram_mb_sec, renders) VALUES (?1, ?2, ?3, ?4, 1) ON CONFLICT(app_id, day) DO UPDATE SET cpu_ms = cpu_ms + excluded.cpu_ms, ram_mb_sec = ram_mb_sec + excluded.ram_mb_sec, renders = renders + 1")
+    .bind(rec.id, todayKey(), cpuMs, ramMbSec).run();
+  try { await run(); } catch (e) { if (!noSuchTable(e)) throw e; await env.INFO.prepare(SSR_USAGE_DDL).run(); await run(); }
+}
+const ssrTodayView = (lim, u) => ({
+  day: u.day, renders: u.renders, cpuMs: u.cpuMs, ramMbSec: u.ramMbSec,
+  cpuMsLeft: Math.max(0, lim.cpuMsDay - u.cpuMs), ramMbSecLeft: Math.max(0, lim.ramMbSecDay - u.ramMbSec),
+  resetsInSeconds: secondsToMidnight(),
+});
+// May this app render right now? Blocks once EITHER daily total is used up. If usage can't be read it also says no
+// (the page is then served without rendering, never as an error).
+async function ssrBudget(env, rec) {
+  const lim = SSR_LIMITS[cacheTier(rec)];
+  if (!lim) return { ok: false, why: "plan" };
+  try {
+    const u = await ssrUsageToday(env, rec);
+    return { ok: u.cpuMs < lim.cpuMsDay && u.ramMbSec < lim.ramMbSecDay, why: "limit", usage: u };
+  } catch (e) { console.error("ssr usage:", e && e.message); return { ok: false, why: "error" }; }
+}
+// Sends the page to the renderer with this plan's per-render limits and adds what the render used to today's total.
+// The renderer key is the worker's ADMIN_KEY secret (env.ADMIN_KEY).
+async function renderSsr(env, ctx, rec, html, pageUrl, cookies) {
+  const lim = SSR_LIMITS[cacheTier(rec)];
+  if (!lim) return { ok: false, status: 0, ms: 0, error: SSR_PAID_MSG };
+  if (!env.ADMIN_KEY) { console.error("ssr: ADMIN_KEY is not set on the worker"); return { ok: false, status: 0, ms: 0, error: "The renderer key (ADMIN_KEY) is not set on the worker" }; }
+  const t0 = Date.now();
+  let status = 0, d = null;
+  try {
+    const res = await fetch(String(env.SSR_URL || SSR_DEFAULT_URL).replace(/\/+$/, "") + "/render", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-admin-key": env.ADMIN_KEY },
+      body: JSON.stringify({ html, url: pageUrl, cookies: Object.fromEntries(cookies), cpuMs: lim.cpuMs, ramMb: lim.ramMb, wallMs: lim.wallMs, settleMs: lim.settleMs }),
+      signal: AbortSignal.timeout(lim.wallMs + 3000),
+    });
+    status = res.status;
+    d = await res.json().catch(() => null);
+  } catch (e) { console.error("ssr:", e && e.message); }
+  const ms = Date.now() - t0;
+
+  // What to charge: what the renderer measured; if it killed the page for going over (422/504) without a measurement, the per-render limit.
+  let cpu = 0, ram = 0;
+  const m = d && d.resources;
+  if (m && Number.isFinite(Number(m.cpuTimeMs))) { cpu = Math.ceil(Number(m.cpuTimeMs)); ram = Math.ceil((Number(m.peakRamMb) || 0) * ms / 1000); }
+  else if (status === 422 || status === 504) { cpu = lim.cpuMs; ram = Math.ceil(lim.ramMb * ms / 1000); }
+  if (cpu || ram) {
+    const p = addSsrUsage(env, rec, cpu, ram).catch((e) => console.error("ssr usage write:", e && e.message));
+    if (ctx) ctx.waitUntil(p); else await p; // no ctx: finish the write before returning
+  }
+
+  const info = { status, ms, charged: { cpuMs: cpu, ramMbSec: ram } };
+  if (status >= 200 && status < 300 && d && d.success && typeof d.html === "string") return { ok: true, bytes: enc.encode(d.html), ...info };
+  console.error("ssr failed:", status, d && d.error);
+  return { ok: false, error: (d && d.error) || (status ? "The renderer returned " + status : "The renderer could not be reached"), ...info };
+}
+
 async function pageFileResponse(env, rec, request, rel, status, extra) {
-  const name = sitePath(getSite(rec), rel), hit = await findFile(env, rec.id, [name]);
+  const name = rel, hit = await findFile(env, rec.id, [name]);
   if (!hit) return null;
   let first = null, type = mimeFor(name);
   if (!type) {
@@ -2305,11 +2450,15 @@ async function saveSite(env, rec, site) {
 }
 async function siteReply(env, rec, warnings = []) {
   const site = parseSite(rec), pages = new Map();
-  for (const [st, p] of Object.entries(site.errors)) pages.set(sitePath(site, p), `Error page for ${st}`);
-  if (site.spa.mode !== "off") pages.set(sitePath(site, site.spa.page), "SPA page");
-  if (site.maintenance.page) pages.set(sitePath(site, site.maintenance.page), "Maintenance page");
+  for (const [st, p] of Object.entries(site.errors)) pages.set(p, `Error page for ${st}`);
+  if (site.spa.mode !== "off") pages.set(site.spa.page, "SPA page");
+  if (site.maintenance.page) pages.set(site.maintenance.page, "Maintenance page");
   const have = await existingFiles(env, rec.id, [...pages.keys()]);
   for (const [p, what] of pages) if (!have.has(p)) warnings.push(`${what}: "/${p}" is missing, so the built-in page is used`);
+  if (site.ssr.files.length) {
+    const haveS = await existingFiles(env, rec.id, site.ssr.files);
+    for (const f of site.ssr.files) if (!haveS.has(f)) warnings.push(`Server-side rendering: "/${f}" is missing, so nothing is rendered for it`);
+  }
   if (site.private && !site.allowedIps.length) warnings.push("The site is private and no address is allowed, so nobody can open it");
   if (!isPremium(rec)) warnings.push(SITE_PAID_MSG);
   return json({ success: true, premium: isPremium(rec), site, warnings });
@@ -2320,16 +2469,48 @@ const siteRoute = (fn) => cookieRoute(async (rec, b, c) => {
   return fn(rec, b, c);
 });
 
+// SSR settings, shared by /api/site/update ({ ssr: {...} }) and /api/ssr/update. Mutates `site`; the caller saves it.
+// files are paths from the TOP of the app (like the SPA page), not from rootDir.
+async function applySsr(env, rec, site, o) {
+  if (!o || typeof o !== "object" || Array.isArray(o)) throw new HttpError(400, 'ssr must be an object like { "files": ["public/products.html"], "query": true, "cookies": ["theme"] }');
+  const lim = SSR_LIMITS[cacheTier(rec)];
+  if (!lim) throw new HttpError(403, SSR_PAID_MSG);
+  const next = { files: site.ssr.files, query: site.ssr.query, cookies: site.ssr.cookies };
+  if (o.query !== undefined) {
+    if (typeof o.query !== "boolean") throw new HttpError(400, "ssr.query must be true or false");
+    next.query = o.query;
+  }
+  if (o.files !== undefined) {
+    if (!Array.isArray(o.files)) throw new HttpError(400, "ssr.files must be a list of file paths");
+    const files = [...new Set(o.files.map((f) => cleanRel(f)))];
+    if (files.length > lim.files) throw new HttpError(400, `Your plan allows up to ${lim.files} server-rendered pages`);
+    for (const f of files) {
+      if (!/\.(html?|xhtml)$/i.test(f)) throw new HttpError(400, `ssr.files: "${f}" must be an HTML file (.html or .htm)`);
+      await checkPage(env, rec, site, f, "ssr.files");
+    }
+    next.files = files;
+  }
+  if (o.cookies !== undefined) {
+    if (!Array.isArray(o.cookies)) throw new HttpError(400, "ssr.cookies must be a list of cookie names");
+    const names = [...new Set(o.cookies.map((c) => String(c).trim()).filter(Boolean))];
+    if (names.length > SSR_MAX_COOKIES) throw new HttpError(400, `You can pass up to ${SSR_MAX_COOKIES} cookies to the renderer`);
+    for (const n of names) if (!SSR_COOKIE_RE.test(n)) throw new HttpError(400, `"${n}" is not a valid cookie name`);
+    next.cookies = names;
+  }
+  site.ssr = next;
+}
+
 USER["/api/site/get"] = cookieRoute(async (rec, b, { env }) => {
   const r = await siteReply(env, rec);
   const d = await r.json();
-  return json({ ...d, defaults: SITE_DEFAULT, allowed: { spaModes: SPA_MODES, maxErrorPages: MAX_ERROR_PAGES, maxIps: MAX_SITE_IPS, maxRetryAfter: MAX_RETRY_AFTER, freeErrors: FREE_ERRORS, freeSpaModes: FREE_SPA_MODES } });
+  return json({ ...d, defaults: SITE_DEFAULT, allowed: { spaModes: SPA_MODES, maxErrorPages: MAX_ERROR_PAGES, maxIps: MAX_SITE_IPS, maxRetryAfter: MAX_RETRY_AFTER, freeErrors: FREE_ERRORS, freeSpaModes: FREE_SPA_MODES, ssr: ssrAllowed(rec) } });
 });
 
 USER["/api/site/update"] = cookieRoute(async (rec, b, { env }) => {
   const paid = isPremium(rec);
   if (!paid && (b.maintenance !== undefined || b.private !== undefined)) throw new HttpError(403, "Private site and maintenance mode are only available on paid plans");
   if (!paid && b.spa && b.spa.mode !== undefined && !FREE_SPA_MODES.includes(b.spa.mode)) throw new HttpError(403, 'SPA "always" mode is only available on paid plans');
+  if (!paid && b.ssr !== undefined) throw new HttpError(403, SSR_PAID_MSG);
   const site = structuredClone(parseSite(rec)), warnings = [];
   const isObj = (v) => v && typeof v === "object" && !Array.isArray(v);
   if (b.rootDir !== undefined) {
@@ -2366,8 +2547,36 @@ USER["/api/site/update"] = cookieRoute(async (rec, b, { env }) => {
     if (typeof b.private !== "boolean") throw new HttpError(400, "private must be true or false");
     site.private = b.private;
   }
+  if (b.ssr !== undefined) await applySsr(env, rec, site, b.ssr);
   await saveSite(env, rec, site);
   return siteReply(env, rec, warnings);
+});
+
+// ---------- SSR API: settings, today's usage, and a test render (no domain needed)
+async function ssrReply(env, rec, warnings = []) {
+  const site = parseSite(rec), lim = SSR_LIMITS[cacheTier(rec)];
+  if (!lim) return json({ success: true, available: false, message: SSR_PAID_MSG, ssr: site.ssr, rootDir: site.rootDir, limits: null, today: null, warnings: [] });
+  if (site.ssr.files.length) {
+    const have = await existingFiles(env, rec.id, site.ssr.files);
+    for (const f of site.ssr.files) if (!have.has(f)) warnings.push(`"/${f}" is missing, so nothing is rendered for it`);
+  }
+  const u = await ssrUsageToday(env, rec).catch((e) => { console.error("ssr usage:", e && e.message); return null; });
+  return json({
+    success: true, available: true, ssr: site.ssr, rootDir: site.rootDir,
+    maxFiles: lim.files, maxCookies: SSR_MAX_COOKIES, limits: ssrLimitsView(lim),
+    today: u ? ssrTodayView(lim, u) : null, warnings,
+  });
+}
+USER["/api/ssr/get"] = cookieRoute(async (rec, b, { env }) => ssrReply(env, rec));
+
+// Body: { "files": [...], "query": true, "cookies": [...] } (any of them), or the same inside { "ssr": {...} }.
+USER["/api/ssr/update"] = cookieRoute(async (rec, b, { env }) => {
+  if (!SSR_LIMITS[cacheTier(rec)]) throw new HttpError(403, SSR_PAID_MSG);
+  const site = structuredClone(parseSite(rec));
+  const o = b.ssr !== undefined ? b.ssr : { files: b.files, query: b.query, cookies: b.cookies };
+  await applySsr(env, rec, site, o);
+  await saveSite(env, rec, site);
+  return ssrReply(env, rec);
 });
 
 USER["/api/site/errors/set"] = cookieRoute(async (rec, b, { env }) => {
@@ -2612,7 +2821,7 @@ function resolveCachePolicy(rec, urlPath, fileName, type) {
   return out;
 }
 
-async function applyCacheHeaders(request, h, rec, urlPath, fileName, type, info, src) {
+async function applyCacheHeaders(request, h, rec, urlPath, fileName, type, info, src, extraSeed) {
   const pol = resolveCachePolicy(rec, urlPath, fileName, type);
   const { cfg, tier } = pol;
   if (cfg.debugHeader) h.set("X-Cache-Policy", pol.source);
@@ -2629,7 +2838,7 @@ async function applyCacheHeaders(request, h, rec, urlPath, fileName, type, info,
   const lm = info.modified ? new Date(info.modified) : null;
   if (tier >= 1 && cfg.etag) {
     const token = purgeToken(rec, urlPath, fileName);
-    const seed = [rec.id, normPath(urlPath), token, dev, country, info.modified || "", info.size || 0].join("|");
+    const seed = [rec.id, normPath(urlPath), token, dev, country, info.modified || "", info.size || 0].concat(extraSeed ? [extraSeed] : []).join("|");
     const etag = '"' + (await sha256hex(seed)).slice(0, 22) + '"';
     h.set("ETag", etag);
     h.set("X-Cache-Version", String(token));
@@ -2682,7 +2891,7 @@ async function servePageInner(request, env, ctx, url, st) {
   if (!cand) return errorResponse(env, rec, request, 400, "Bad request", "Invalid path.");
   if (site.rootDir) cand = { ...cand, files: cand.files.map((f) => site.rootDir + "/" + f) };
   let spaUsed = false;
-  if (site.spa.mode === "always") { cand = { ...cand, files: [sitePath(site, site.spa.page)] }; spaUsed = true; }
+  if (site.spa.mode === "always") { cand = { ...cand, files: [site.spa.page] }; spaUsed = true; }
 
   if (isHotlinked(env, rec, request, found.host, cand.urlPath)) return hotlinkResponse(env, rec, request, found.host, cand.urlPath);
 
@@ -2699,14 +2908,30 @@ async function servePageInner(request, env, ctx, url, st) {
   const src = requestSource(request);
   const cfg = getCacheConfig(rec), tier = cacheTier(rec);
   const variant = (tier >= 1 && cfg.deviceCache ? deviceClass(src.device) : "") + "|" + (tier >= 2 && cfg.cacheByCountry ? String(src.country || "").toUpperCase().slice(0, 2) : "");
+  const ssrSet = site.ssr.files.length ? new Set(site.ssr.files) : null;
+  const ssrIn = ssrSet ? await ssrInput(request, url, site.ssr) : null;
+  if (ssrIn && ssrIn.err) return errorResponse(env, rec, request, ssrIn.err[0], ssrIn.err[1], ssrIn.err[2]);
   const useEdge = cfg.enabled && cfg.edgeCache && request.method === "GET";
-  const ek = useEdge ? edgeKey(found.host, cand.urlPath, variant) : null;
+  // Rendered pages differ per query string / allowed cookie, so each combination gets its own edge entry.
+  const ssrVariant = ssrIn && ssrIn.key && cand.files.some((f) => ssrSet.has(f)) ? "|s" + ssrIn.key : "";
+  const ek = useEdge ? edgeKey(found.host, cand.urlPath, variant + ssrVariant) : null;
 
   if (ek) {
-    const c = await caches.default.match(ek);
+    let c = await caches.default.match(ek);
+    if (c) {
+      // A purge (manual, scheduled or on deploy) raises the purge version. An edge copy stored
+      // under an older version is stale, so drop it and fall through to a fresh read.
+      const stored = Number(c.headers.get("X-Cache-Token") || 0), cur = purgeToken(rec, cand.urlPath, c.headers.get("X-Cache-File") || cand.files[0]);
+      if (stored < cur) {
+        c.body && c.body.cancel().catch(() => {});
+        ctx.waitUntil(caches.default.delete(ek).catch(() => {}));
+        c = null;
+      }
+    }
     if (c) {
       const h = new Headers(c.headers), bcc = h.get("X-Browser-CC"), cfile = h.get("X-Cache-File");
-      h.delete("X-Browser-CC"); h.delete("X-Cache-File");
+      h.delete("X-Browser-CC"); h.delete("X-Cache-File"); h.delete("X-Cache-Token");
+      const xv = h.get("X-Vary"); h.delete("X-Vary"); if (xv) h.set("Vary", xv);
       if (bcc) h.set("Cache-Control", bcc);
       const type = h.get("Content-Type") || "";
       if (/^text\/html/i.test(type)) {
@@ -2727,7 +2952,7 @@ async function servePageInner(request, env, ctx, url, st) {
 
   let hit = await findFile(env, rec.id, cand.files);
   if (!hit && site.spa.mode === "fallback" && !extOf(cand.urlPath)) {
-    hit = await findFile(env, rec.id, [sitePath(site, site.spa.page)]);
+    hit = await findFile(env, rec.id, [site.spa.page]);
     if (hit) spaUsed = true;
   }
   if (!hit) return errorResponse(env, rec, request, 404, "Page not found", "The page you are looking for does not exist.");
@@ -2739,7 +2964,9 @@ async function servePageInner(request, env, ctx, url, st) {
     type = /^\s*<(!doctype html|html)/i.test(dec.decode(first.subarray(0, 512))) ? "text/html; charset=utf-8" : "application/octet-stream";
   }
   const h = new Headers({ "Content-Type": type, "X-Content-Type-Options": "nosniff" });
-  const pol = await applyCacheHeaders(request, h, rec, cand.urlPath, name, type, info, src);
+  const ssrOn = !!(ssrIn && ssrSet.has(name) && /^text\/html/i.test(type));
+  const pol = await applyCacheHeaders(request, h, rec, cand.urlPath, name, type, info, src, ssrOn ? "ssr:" + ssrIn.key : "");
+  if (ssrOn && site.ssr.cookies.length) h.append("Vary", "Cookie");
   if (pol.pol.tier >= 3) ctx.waitUntil(bumpStat(env, rec.id, pol.kind === "notModified" ? "not_modified" : pol.kind));
   const isHtml = /^text\/html/i.test(type);
   if (isHtml) ctx.waitUntil(recordVisit(env, rec, found.host, cand.urlPath, src).catch((e) => console.error("visit:", e && e.message)));
@@ -2748,20 +2975,39 @@ async function servePageInner(request, env, ctx, url, st) {
   if (pol.notModified) { withExtras(); return new Response(null, { status: 304, headers: h }); }
   if (request.method === "HEAD") { withExtras(); return new Response(null, { status: 200, headers: h }); }
 
-  const storeEdge = ek && !spaUsed && pol.pol.mode === "cache" && pol.pol.edgeTtl > 0 && (info.size || 0) <= 5 * MB;
+  let ssrBytes = null, ssrFailed = false, ssrWhy = "failed";
+  if (ssrOn) {
+    if ((info.size || 0) <= SSR_MAX_INPUT) {
+      const budget = await ssrBudget(env, rec);
+      if (!budget.ok) { ssrFailed = true; if (budget.why === "limit") ssrWhy = "limit"; }
+      else {
+        const raw = await readFileBytes(env, rec.id, name, info);
+        const r = await renderSsr(env, ctx, rec, dec.decode(raw), "https://" + found.host + url.pathname + ssrIn.search, ssrIn.cookies);
+        if (r.ok) { ssrBytes = r.bytes; h.set("X-SSR", "rendered"); } else ssrFailed = true;
+      }
+    } else ssrFailed = true;
+    if (ssrFailed) {
+      // The renderer is unavailable or today's total is used up: serve the file as-is, and never cache or validate it, so a later 304 can't pin this copy.
+      h.set("X-SSR", ssrWhy); h.set("Cache-Control", "no-store");
+      h.delete("ETag"); h.delete("Last-Modified"); h.delete("X-Cache-Version");
+    }
+  }
+
+  const storeEdge = ek && !spaUsed && !ssrFailed && pol.pol.mode === "cache" && pol.pol.edgeTtl > 0 && (ssrBytes ? ssrBytes.length : info.size || 0) <= 5 * MB;
   if (storeEdge) {
-    const bytes = await readFileBytes(env, rec.id, name, info);
+    const bytes = ssrBytes || await readFileBytes(env, rec.id, name, info);
     const sh = new Headers(h);
     sh.set("X-Browser-CC", h.get("Cache-Control") || "");
     sh.set("X-Cache-File", name);
+    sh.set("X-Cache-Token", String(purgeToken(rec, cand.urlPath, name)));
     sh.set("Cache-Control", "public, max-age=" + pol.pol.edgeTtl);
-    sh.delete("Vary");
+    sh.set("X-Vary", h.get("Vary") || ""); sh.delete("Vary");
     ctx.waitUntil(caches.default.put(ek, new Response(bytes, { status: 200, headers: sh })).catch(() => {}));
     withExtras();
     return new Response(bytes, { status: 200, headers: h });
   }
   withExtras();
-  return new Response(chunkStream(env, rec.id, name, info, first), { status: 200, headers: h });
+  return new Response(ssrBytes || chunkStream(env, rec.id, name, info, first), { status: 200, headers: h });
 }
 
 async function runScheduled(env, ctx) {
@@ -2787,6 +3033,8 @@ async function runScheduled(env, ctx) {
       env.INFO.prepare("DELETE FROM visits WHERE time < ?1").bind(cutoff),
     ]);
   } catch (e) { console.error("Stats cleanup failed:", e && e.message); }
+  try { await env.INFO.prepare("DELETE FROM ssr_usage WHERE day < ?1").bind(todayKey()).run(); }
+  catch (e) { if (!noSuchTable(e)) console.error("SSR usage cleanup failed:", e && e.message); }
 }
 
 function userCors(env, origin) {
