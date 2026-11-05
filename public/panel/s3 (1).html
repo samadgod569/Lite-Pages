@@ -1,0 +1,543 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S3 storage – Fast Site</title>
+<meta name="description" content="Manage your Fast Site app's S3 storage: buckets and objects.">
+<link rel="icon" type="image/svg+xml" href="images/logo.svg">
+<script>
+  (function(){var u,p;try{u=localStorage.getItem("lp-username");p=localStorage.getItem("lp-password")}catch(e){}
+  if(!u||!p)location.replace("signup.html");
+  else if(!new URLSearchParams(location.search).get("id"))location.replace("dashboard.html")})();
+</script>
+<script>
+  (function(){var t;try{t=localStorage.getItem("lp-theme")}catch(e){}
+  if(!t)t=matchMedia("(prefers-color-scheme:dark)").matches?"dark":"light";
+  document.documentElement.dataset.theme=t})();
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{color-scheme:light;--bg:#fff;--surface:#fff;--soft:#f6f6f7;--line:#e4e4e7;--text:#09090b;--muted:#5b5b66;--accent:#0e7490;--accent-ink:#fff;--danger:#b91c1c;--ok:#16a34a}
+  [data-theme=dark]{color-scheme:dark;--bg:#000;--surface:#0a0a0a;--soft:#111113;--line:#262629;--text:#fafafa;--muted:#a1a1aa;--accent:#5be0f0;--accent-ink:#001418;--danger:#f87171;--ok:#4ade80}
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{margin:0;min-height:100vh;display:flex;flex-direction:column;background:var(--bg);color:var(--text);font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif;line-height:1.55;overflow-x:hidden}
+  main{flex:1;padding:32px 20px 64px}
+  [hidden]{display:none!important}
+  .wrap{max-width:1040px;margin:0 auto}
+  h1{font-size:26px;letter-spacing:-.02em;line-height:1.2;margin:0 0 4px}
+  .sub{margin:0 0 24px;color:var(--muted);font-size:14.5px}
+  .sub b{color:var(--text)}
+  a:focus-visible,button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+  .layout{display:grid;grid-template-columns:minmax(0,1fr);gap:18px;align-items:start}
+  .nav{display:flex;flex-direction:row;overflow-x:auto;gap:6px;padding-bottom:10px;border-bottom:1px solid var(--line);scrollbar-width:none}
+  .nav::-webkit-scrollbar{display:none}
+  .nv{text-align:left;padding:8px 12px;border:1px solid var(--line);border-radius:8px;background:none;color:var(--muted);font:500 14px Inter,sans-serif;cursor:pointer;white-space:nowrap;flex-shrink:0}
+  .nv:hover{background:var(--soft);color:var(--text)}
+  .nv.on{background:var(--soft);color:var(--text);font-weight:600;border-color:var(--accent)}
+  a.nv{text-decoration:none;display:inline-block}
+  .panel{min-width:0}
+  .panel h2{margin:0 0 2px;font-size:19px;letter-spacing:-.01em}
+  .lead{margin:0 0 18px;font-size:14px;color:var(--muted)}
+  .lead b{color:var(--text)}
+
+  .label{display:block;margin:0 0 6px;font-size:13px;font-weight:600;color:var(--muted)}
+  .hint{margin:7px 0 0;font-size:12.5px;color:var(--muted)}
+  .pill{display:inline-block;padding:2px 10px;border-radius:999px;background:var(--soft);border:1px solid var(--line);font-size:12px;font-weight:600;color:var(--muted)}
+  .field{display:flex;align-items:stretch;border:1px solid var(--line);border-radius:8px;background:var(--surface);overflow:hidden;max-width:520px}
+  .field:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 20%,transparent)}
+  .field input{flex:1;min-width:0;padding:9px 12px;border:0;outline:0;background:transparent;color:var(--text);font:500 14.5px Inter,sans-serif}
+  .field input.mono,textarea.ta{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13.5px}
+  .field input::placeholder{color:var(--muted);opacity:.7}
+  .field input:disabled{opacity:.5;cursor:not-allowed}
+  textarea.ta{width:100%;max-width:520px;min-height:84px;resize:vertical;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--text);font-weight:500;outline:0;display:block}
+  textarea.ta:focus{border-color:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 20%,transparent)}
+  .sfx{display:flex;align-items:center;padding:0 12px;background:var(--soft);border-left:1px solid var(--line);color:var(--muted);font-size:14px}
+
+  .row{display:flex;gap:8px;flex-wrap:wrap;margin-top:16px}
+  .btn{display:inline-flex;align-items:center;justify-content:center;padding:9px 16px;border-radius:8px;font:600 14px Inter,sans-serif;text-decoration:none;cursor:pointer;border:1px solid var(--accent);background:var(--accent);color:var(--accent-ink)}
+  .btn:hover{opacity:.9}
+  .btn:disabled{opacity:.5;cursor:not-allowed}
+  .btn.ghost{background:transparent;color:var(--text);border-color:var(--line)}
+  .btn.ghost:hover{border-color:var(--accent);opacity:1}
+  .btn.danger{background:transparent;color:var(--danger);border-color:color-mix(in srgb,var(--danger) 45%,var(--line))}
+  .btn.danger.solid{background:var(--danger);border-color:var(--danger);color:#fff}
+  .btn.small{padding:6px 12px;font-size:13px}
+
+  .msg{margin:14px 0 0;padding:10px 14px;border-radius:8px;font-size:14px;border:1px solid var(--line);background:var(--soft)}
+  .msg.ok{border-color:color-mix(in srgb,var(--ok) 45%,var(--line));color:var(--ok)}
+  .msg.err{border-color:color-mix(in srgb,var(--danger) 45%,var(--line));color:var(--danger)}
+  .msg.info{color:var(--muted)}
+
+  .rule{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;align-items:center;padding:12px 16px}
+  .rule+.rule{border-top:1px solid var(--line)}
+  .rule .m{min-width:0}
+  .rule .m b{display:block;font:600 14px ui-monospace,SFMono-Regular,Menlo,monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .rule .m small{display:block;margin-top:3px;color:var(--muted);font:500 12.5px ui-monospace,SFMono-Regular,Menlo,monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .acts{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+  .acts .btn{padding:5px 10px;font-size:12.5px}
+  .list{border:1px solid var(--line);border-radius:12px;background:var(--surface);overflow:hidden}
+  .none{padding:22px 14px;text-align:center;color:var(--muted);font-size:14px;border:1px dashed var(--line);border-radius:12px;background:var(--soft)}
+  .form{margin-top:18px;padding:18px;border:1px solid var(--line);border-radius:12px;background:var(--surface)}
+  .form>*+*{margin-top:14px}
+  .form h3{margin:0;font-size:15px}
+  .form>.row{margin-top:18px}
+  .cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px}
+  .cols .field{max-width:none}
+  .prev{margin:0;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--soft);font:500 13px ui-monospace,SFMono-Regular,Menlo,monospace;word-break:break-all}
+  .copyrow{display:flex;gap:8px;align-items:stretch;flex-wrap:wrap}
+  .copyrow .prev{flex:1 1 260px}
+
+  .pick{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+  .pick label.btn{cursor:pointer}
+  .head-row{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:0 0 12px}
+  .head-row h3{margin:0;font-size:15px}
+  .ns{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:center;padding:0 12px 0 0}
+  .ns+.ns{border-top:1px solid var(--line)}
+  .ns .open{display:flex;align-items:center;gap:10px;min-width:0;padding:14px 16px;border:0;background:none;color:var(--text);font:600 14.5px ui-monospace,SFMono-Regular,Menlo,monospace;text-align:left;cursor:pointer;width:100%}
+  .ns .open span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .ns .open:hover{background:var(--soft)}
+  .ns .open i{margin-left:auto;font-style:normal;color:var(--muted)}
+  .back{display:inline-flex;align-items:center;gap:6px;margin:0 0 14px;padding:6px 12px;border:1px solid var(--line);border-radius:8px;background:none;color:var(--muted);font:600 13px Inter,sans-serif;cursor:pointer}
+  .back:hover{color:var(--text);border-color:var(--accent)}
+  .chart{display:flex;align-items:flex-end;gap:8px;height:120px;padding:12px 14px 8px;border:1px solid var(--line);border-radius:10px;background:var(--soft)}
+  .chart .col{flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;gap:4px}
+  .chart .col i{display:block;width:100%;max-width:38px;min-height:2px;border-radius:4px 4px 0 0;background:var(--accent)}
+  .chart .col em{font:500 10.5px Inter,sans-serif;color:var(--muted);font-style:normal;white-space:nowrap}
+  .chart .col b{font:600 11px Inter,sans-serif}
+  .kvtable{border:1px solid var(--line);border-radius:12px;background:var(--surface);overflow:hidden}
+  .kvtable div{display:flex;justify-content:space-between;gap:12px;padding:10px 16px;font-size:14px}
+  .kvtable div+div{border-top:1px solid var(--line)}
+  .kvtable span{color:var(--muted)}
+  .kvtable b{font-weight:600;text-align:right;word-break:break-all}
+  .stats{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:12px}
+  .stat{border:1px solid var(--line);background:var(--soft);border-radius:10px;padding:12px 14px}
+  .stat b{display:block;font-size:22px;letter-spacing:-.02em;line-height:1.2}
+  .stat span{font-size:12.5px;font-weight:500;color:var(--muted)}
+  .bar{height:6px;border-radius:999px;background:var(--line);margin-top:8px;overflow:hidden}
+  .bar i{display:block;height:100%;background:var(--accent);border-radius:999px}
+  .bar i.hot{background:var(--danger)}
+  h3.sec{margin:24px 0 8px;font-size:15px}
+
+  .sk{border:1px solid var(--line);border-radius:12px;height:240px;background:linear-gradient(100deg,var(--soft) 30%,var(--line) 50%,var(--soft) 70%);background-size:300% 100%;animation:shine 1.4s linear infinite}
+  @keyframes shine{to{background-position:-300% 0}}
+  @keyframes ddIn{from{opacity:0;transform:translateY(-4px)}}
+  @keyframes ddFade{from{opacity:0}}
+  .empty{border:1px dashed var(--line);border-radius:14px;background:var(--soft);padding:48px 24px;text-align:center}
+  .empty h2{margin:0 0 6px;font-size:21px}
+  .empty p{margin:0 0 20px;color:var(--muted)}
+  .gate{max-width:480px}
+
+  .mdl{position:fixed;inset:0;z-index:1100;display:grid;place-items:center;padding:20px;background:color-mix(in srgb,#000 55%,transparent);animation:ddFade .12s ease-out}
+  .mdl-box{width:100%;max-width:400px;padding:20px;background:var(--surface);color:var(--text);border:1px solid var(--line);border-radius:14px;box-shadow:0 20px 50px rgba(0,0,0,.35);animation:ddIn .14s ease-out}
+  .mdl-box h3{margin:0 0 6px;font-size:17px}
+  .mdl-box p{margin:0;color:var(--muted);font-size:14px;white-space:pre-line}
+  .mdl-box .row{justify-content:flex-end;margin-top:20px}
+
+  @media(max-width:820px){main{padding:24px 16px 48px}}
+  @media(max-width:560px){
+    h1{font-size:23px}
+    .field,textarea.ta{max-width:none}
+    .rule{grid-template-columns:minmax(0,1fr)}
+    .rule .acts{justify-content:flex-start}
+    .form{padding:14px}
+  }
+  @media(prefers-reduced-motion:reduce){*,::after{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+
+<div id="panelEssentials"></div>
+
+<main>
+  <div class="wrap">
+    <header>
+      <h1>S3 storage</h1>
+      <p class="sub" id="sub">&nbsp;</p>
+    </header>
+    <div id="content" aria-live="polite"></div>
+  </div>
+</main>
+
+<div id="footer"></div>
+
+<script>
+  const API_BASE = "https://lite-pages.thecodemonai.workers.dev/api";
+  
+  const APP_ID = new URLSearchParams(location.search).get("id") || "";
+  let app = null, st = null, tab = "data", cur = null, editing = null, items = [], cursor = null, showNew = false, showKeyForm = false;
+  const shown = new Set();
+
+  const $ = id => document.getElementById(id);
+  const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const num = n => Number(n).toLocaleString("en-US");
+  const fmtMs = ms => ms >= 1000 ? (Math.round(ms / 100) / 10) + " s" : ms + " ms";
+  const fmtBytes = b => b >= 1048576 ? (Math.round(b / 104857.6) / 10) + " MB" : b >= 1024 ? Math.round(b / 1024) + " KB" : b + " B";
+  const fmtReset = s => { const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60); return (h ? h + "h " : "") + m + "m"; };
+
+  // confirm dialog: await askConfirm("text", { title, ok, danger })
+  window.askConfirm = function (text, o) {
+    o = o || {};
+    return new Promise(res => {
+      const prev = document.activeElement;
+      const m = document.createElement("div"); m.className = "mdl";
+      m.innerHTML = '<div class="mdl-box" role="alertdialog" aria-modal="true" aria-labelledby="mdlT"><h3 id="mdlT">' + esc(o.title || "Are you sure?") + "</h3><p>" + esc(text) + "</p>" +
+        '<div class="row"><button class="btn ghost" type="button" data-r="0">Cancel</button><button class="btn' + (o.danger ? " danger solid" : "") + '" type="button" data-r="1">' + esc(o.ok || "Confirm") + "</button></div></div>";
+      const done = v => { document.removeEventListener("keydown", key, true); m.remove(); if (prev && prev.focus && prev.isConnected) prev.focus(); res(v); };
+      const key = e => {
+        if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); done(false); }
+        else if (e.key === "Tab") { const b = m.querySelectorAll("button"); e.preventDefault(); (document.activeElement === b[0] ? b[1] : b[0]).focus(); }
+      };
+      m.addEventListener("click", e => { const b = e.target.closest("button"); if (b) done(b.dataset.r === "1"); else if (e.target === m) done(false); });
+      document.addEventListener("keydown", key, true);
+      document.body.appendChild(m);
+      m.querySelector('[data-r="1"]').focus();
+    });
+  };
+
+  function inject(id, url) {
+    fetch(url).then(r => r.ok ? r.text() : "").then(html => {
+      const box = $(id);
+      box.innerHTML = html;
+      box.querySelectorAll("script").forEach(old => {
+        const s = document.createElement("script");
+        [...old.attributes].forEach(a => s.setAttribute(a.name, a.value));
+        s.textContent = old.textContent;
+        old.replaceWith(s);
+      });
+    }).catch(e => console.error("Could not load " + url, e));
+  }
+  inject("panelEssentials", "../assets/panel-essentials.html");
+  inject("footer", "../assets/footer-panel.html");
+
+  // ---------- credentials / api
+  function creds() {
+    try { return { u: localStorage.getItem("lp-username"), p: localStorage.getItem("lp-password") }; }
+    catch (e) { return { u: null, p: null }; }
+  }
+  const storedAppPw = () => { try { return localStorage.getItem("lp-app-password:" + APP_ID) || ""; } catch (e) { return ""; } };
+  const saveAppPw = pw => { try { localStorage.setItem("lp-app-password:" + APP_ID, pw); } catch (e) {} };
+  const forgetAppPw = () => { try { localStorage.removeItem("lp-app-password:" + APP_ID); } catch (e) {} };
+  const appPassword = () => storedAppPw() || ($("apw") ? $("apw").value : "");
+
+  async function post(path, extra) {
+    const { u, p } = creds();
+    const res = await fetch(API_BASE + path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(Object.assign({ username: u, password: p }, extra))
+    });
+    let data = {};
+    try { data = await res.json(); } catch (e) {}
+    return { res, data };
+  }
+  const appPost = (path, extra) => post(path, Object.assign({ appId: APP_ID, appPassword: appPassword() }, extra));
+
+  function say(id, kind, text) {
+    const el = $(id);
+    if (!el) return;
+    if (!text) { el.hidden = true; el.textContent = ""; return; }
+    el.className = "msg " + kind;
+    el.textContent = text;
+    el.hidden = false;
+  }
+  function commonErrors(res, data) {
+    if (res.status === 401 && /app password/i.test(data.error || "")) {
+      forgetAppPw(); st = null;
+      showPasswordGate("That app password is wrong. Enter the right one.");
+      return true;
+    }
+    if (res.status === 401) { location.replace("signup.html"); return true; }
+    return false;
+  }
+  const netErr = "Network error. Check your connection and try again.";
+
+  // ---------- header + password gate
+  
+  function renderHeader() {
+    document.title = app.name + " – Fast Site";
+    $("sub").innerHTML = "App <b>" + esc(app.name) + "</b>";
+  }
+  function showPasswordGate(errText) {
+    $("content").innerHTML =
+      '<div class="gate"><h2 style="margin:0 0 2px;font-size:19px">App password</h2>' +
+      '<p class="lead">S3 storage needs your app password. It was shown once when you created the app.</p>' +
+      '<div class="field"><input id="apw" type="password" autocomplete="current-password" placeholder="App password"></div>' +
+      '<div class="row"><button class="btn" id="pwBtn" type="button">Continue</button></div>' +
+      '<p class="msg" id="pwMsg" hidden></p></div>';
+    $("pwBtn").addEventListener("click", unlock);
+    $("apw").addEventListener("keydown", e => { if (e.key === "Enter") unlock(); });
+    $("apw").focus();
+    if (errText) say("pwMsg", "err", errText);
+  }
+  async function unlock() {
+    const pw = $("apw").value;
+    if (!pw) return say("pwMsg", "err", "Enter your app password.");
+    $("pwBtn").disabled = true;
+    try { await loadAll(pw); } finally { if ($("pwBtn")) $("pwBtn").disabled = false; }
+  }
+
+
+  const P = "s3", GRP = "bucket", GRPS = "buckets", ITM = "object", TITLE = "S3 storage";
+  const LST = P === "kv" ? "/kv/namespaces/" : "/s3/buckets/";
+  const pick = (d, ...names) => { for (const n of names) if (Array.isArray(d[n])) return d[n]; for (const k in d) if (Array.isArray(d[k])) return d[k]; return []; };
+  const nm = x => typeof x === "string" ? x : (x.name || x.key || "");
+  const TABS = [["data", "S3 storage"], ["usage", "Usage and limits"]];
+  let groups = [];
+
+  function build() {
+    $("content").innerHTML = '<div class="layout"><nav class="nav" id="nav"></nav><section class="panel" id="panel"></section></div>';
+    $("nav").innerHTML = TABS.map(([id, t]) => '<button type="button" class="nv" data-t="' + id + '">' + esc(t) + "</button>").join("");
+    $("nav").addEventListener("click", e => { const b = e.target.closest("[data-t]"); if (b) { tab = b.dataset.t; if (tab === "usage") refreshUsage(); render(); } });
+    $("panel").addEventListener("click", onClick);
+    $("panel").addEventListener("keydown", e => { if (e.key === "Enter" && e.target.tagName === "INPUT") { e.preventDefault(); if (e.target.id === "g_new") createGroup(); else if (e.target.id === "g_new_x") return; else if (e.target.id === "k_name" && P === "kv") saveItem(); } });
+    $("panel").addEventListener("change", e => { if (e.target.id === "u_file") uploadFile(e.target.files[0]); });
+    loadGroups();
+  }
+  function render(msg) {
+    $("nav").querySelectorAll(".nv").forEach(b => b.classList.toggle("on", b.dataset.t === tab));
+    (tab === "usage" ? renderUsage : renderData)();
+    if (msg) say("pmsg", msg[0], msg[1]);
+  }
+  const head = (t, l) => "<h2>" + esc(t) + '</h2><p class="lead">' + l + "</p>";
+  async function call(path, extra) {
+    try {
+      const { res, data } = await appPost(path, extra || {});
+      if (commonErrors(res, data)) return null;
+      if (!res.ok || data.success === false) { say("pmsg", "err", data.error || "Something went wrong."); return null; }
+      return data;
+    } catch (e) { console.error(e); say("pmsg", "err", netErr); return null; }
+  }
+  async function loadGroups(keep) {
+    const d = await call(LST + "list");
+    groups = d ? pick(d, GRPS, "items").map(nm).filter(Boolean) : groups;
+    if (cur && !groups.includes(cur)) cur = null;
+    items = []; cursor = null;
+    if (cur) await loadItems(false); else render();
+  }
+  async function loadItems(more) {
+    const body = P === "kv" ? { namespace: cur, values: true, limit: 100 } : { bucket: cur, limit: 100 };
+    if (more && cursor) body.cursor = cursor;
+    const d = await call("/" + P + (P === "kv" ? "/keys/list" : "/objects/list"), body);
+    if (d) {
+      const list = pick(d, P === "kv" ? "keys" : "objects", "items");
+      items = more ? items.concat(list) : list;
+      cursor = d.cursor || d.nextCursor || d.next_cursor || null;
+    }
+    render();
+  }
+  const itemName = x => typeof x === "string" ? x : (x.key || x.name || "");
+  const preview = v => { let s = typeof v === "string" ? v : JSON.stringify(v); return s == null ? "" : (s.length > 80 ? s.slice(0, 80) + "…" : s); };
+
+  function renderData() {
+    const msgEl = '<p class="msg" id="pmsg" hidden></p>';
+    if (!cur) {
+      let h = head(TITLE, "Pick a " + GRP + " to view and manage its keys.") +
+        '<div class="head-row"><h3>Your ' + GRPS + (groups.length ? ' (' + groups.length + ')' : '') + '</h3>' +
+        (showNew ? "" : '<button class="btn" data-act="gnew" type="button">+ New ' + GRP + '</button>') + '</div>';
+      if (showNew) {
+        h += '<div class="form" style="margin:0 0 14px"><h3>New ' + GRP + '</h3><div><span class="label">Name</span><div class="field"><input class="mono" id="g_new" placeholder="my-' + GRP + '" spellcheck="false" autocapitalize="none"></div></div>' +
+          '<div class="row"><button class="btn" data-act="gcreate" type="button">Create ' + GRP + '</button><button class="btn ghost" data-act="gcancel" type="button">Cancel</button></div></div>';
+      }
+      h += msgEl;
+      h += groups.length ? '<div class="list" style="margin-top:14px">' + groups.map((g, i) =>
+        '<div class="ns"><button class="open" data-act="gopen" data-g="' + i + '" type="button"><span>' + esc(g) + '</span><i>›</i></button>' +
+        '<button class="btn danger small" data-act="gdel" data-g="' + i + '" type="button">Delete</button></div>').join("") + "</div>"
+        : (showNew ? "" : '<div class="none" style="margin-top:14px">No ' + GRPS + ' yet. Tap “New ' + GRP + '” to create one.</div>');
+      $("panel").innerHTML = h;
+      if (showNew && $("g_new")) $("g_new").focus();
+      return;
+    }
+    let h = '<button class="back" data-act="back" type="button">← All ' + GRPS + '</button>' +
+      '<div class="head-row"><h2 style="margin:0;word-break:break-all">' + esc(cur) + '</h2>' +
+      '<button class="btn danger small" data-act="gdel" data-g="-1" type="button">Delete ' + GRP + '</button></div>' +
+      '<p class="lead">' + (P === "kv" ? "Keys stored in this " + GRP + "." : "Objects in this " + GRP + ".") + '</p>' + msgEl;
+    if (P === "kv") {
+      h += (showKeyForm || editing) ? kvForm() : '<div class="row" style="margin:0 0 4px"><button class="btn" data-act="kadd" type="button">+ Add key</button></div>';
+    } else h += s3Form();
+    h += items.length ? '<div class="list" style="margin-top:14px">' + items.map((x, i) => {
+      const n = itemName(x);
+      const sub = P === "kv" ? ("value" in (typeof x === "object" ? x : {}) ? preview(x.value) : "") : [x.size != null ? fmtBytes(x.size) : "", x.contentType || "", x.updatedAt || ""].filter(Boolean).join(" · ");
+      return '<div class="rule"><div class="m"><b>' + esc(n) + "</b>" + (sub ? "<small>" + esc(sub) + "</small>" : "") + '</div><div class="acts">' +
+        (P === "kv" ? '<button class="btn ghost" data-act="edit" data-i="' + i + '" type="button">Edit</button>' : '<button class="btn ghost" data-act="dl" data-i="' + i + '" type="button">Download</button>') +
+        '<button class="btn danger" data-act="idel" data-i="' + i + '" type="button">Delete</button></div></div>';
+    }).join("") + "</div>" : '<div class="none" style="margin-top:14px">No keys in this ' + GRP + ' yet.</div>';
+    if (cursor) h += '<div class="row"><button class="btn ghost" data-act="more" type="button">Load more</button></div>';
+    $("panel").innerHTML = h;
+  }
+  function kvForm() {
+    const e = editing;
+    return '<div class="form" style="margin-top:0"><h3>' + (e ? "Edit key" : "Set a key") + '</h3><div><span class="label">Key</span><div class="field"><input class="mono" id="k_name" spellcheck="false" autocapitalize="none" value="' + esc(e ? e.key : "") + '"' + (e ? " disabled" : "") + '></div></div>' +
+      '<div><span class="label">Value (JSON or plain text)</span><textarea class="ta" id="k_val" spellcheck="false">' + esc(e ? e.value : "") + '</textarea><p class="hint">Valid JSON is stored as JSON; anything else is stored as text.</p></div>' +
+      '<div class="row"><button class="btn" data-act="save" type="button">Save</button>' + '<button class="btn ghost" data-act="cancel" type="button">Cancel</button>' + "</div></div>";
+  }
+  function s3Form() {
+    return '<div class="form" style="margin-top:0"><h3>Upload a file</h3>' +
+      '<div><span class="label">Object key (optional, may contain /)</span><div class="field"><input class="mono" id="k_name" spellcheck="false" autocapitalize="none" placeholder="folder/file.png"></div><p class="hint">Defaults to the file name.</p></div>' +
+      '<div class="pick"><label class="btn" for="u_file">Choose a file</label><input id="u_file" type="file" hidden><span class="hint" id="u_name" style="margin:0">No file chosen · uploads as soon as you pick one</span></div></div>';
+  }
+  async function saveItem() {
+    const key = $("k_name").value.trim(), raw = $("k_val").value;
+    if (!key) return say("pmsg", "err", "Enter a key.");
+    let value; try { value = JSON.parse(raw); } catch (e) { value = raw; }
+    const d = await call("/kv/keys/set", { namespace: cur, key, value });
+    if (d) { editing = null; showKeyForm = false; await loadItems(false); say("pmsg", "ok", "Saved " + key + "."); }
+  }
+  async function uploadFile(f) {
+    if (!f) return;
+    const key = ($("k_name").value.trim() || f.name);
+    if ($("u_name")) $("u_name").textContent = f.name;
+    const buf = new Uint8Array(await f.arrayBuffer()); let bin = "";
+    for (let i = 0; i < buf.length; i += 0x8000) bin += String.fromCharCode.apply(null, buf.subarray(i, i + 0x8000));
+    say("pmsg", "info", "Uploading…");
+    const d = await call("/s3/objects/set", { bucket: cur, key, content: btoa(bin), contentType: f.type || undefined });
+    if (d) { await loadItems(false); say("pmsg", "ok", "Uploaded " + key + "."); }
+  }
+  async function download(n) {
+    const d = await call("/s3/objects/get", { bucket: cur, key: n });
+    if (!d) return;
+    const bin = atob(d.content), u = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([u], { type: d.contentType })); a.download = n.split("/").pop(); a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  }
+  async function createGroup() {
+    const name = $("g_new").value.trim();
+    if (!name) return say("pmsg", "err", "Enter a name.");
+    const d = await call(LST + "create", { name });
+    if (d) { showNew = false; await loadGroups(); say("pmsg", "ok", "Created " + name + "."); }
+  }
+  async function onClick(e) {
+    const b = e.target.closest("button"); if (!b || b.disabled) return;
+    const a = b.dataset.act, x = items[b.dataset.i];
+    if (a === "gcreate") createGroup();
+    else if (a === "gnew") { showNew = true; render(); }
+    else if (a === "gcancel") { showNew = false; render(); }
+    else if (a === "gopen") { cur = groups[+b.dataset.g]; items = []; cursor = null; editing = null; showKeyForm = false; loadItems(false); }
+    else if (a === "back") { cur = null; items = []; cursor = null; editing = null; showKeyForm = false; render(); }
+    else if (a === "kadd") { showKeyForm = true; render(); $("k_name") && $("k_name").focus(); }
+    else if (a === "gdel") {
+      const g = +b.dataset.g, name = g >= 0 ? groups[g] : cur;
+      if (!await askConfirm("Delete " + GRP + " \"" + name + "\" and everything in it?", { title: "Delete " + GRP, ok: "Delete", danger: true })) return;
+      const d = await call(LST + "delete", { name });
+      if (d) { if (cur === name) { cur = null; items = []; cursor = null; } await loadGroups(); say("pmsg", "ok", "Deleted " + name + "."); }
+    }
+    else if (a === "more") loadItems(true);
+    else if (a === "cancel") { editing = null; showKeyForm = false; render(); }
+    else if (a === "save") saveItem();
+    else if (a === "dl") download(itemName(x));
+    else if (a === "edit") {
+      const n = itemName(x);
+      const d = await call("/kv/keys/get", { namespace: cur, key: n });
+      if (!d) return;
+      const v = "value" in d ? d.value : x.value;
+      editing = { key: n, value: typeof v === "string" ? v : JSON.stringify(v, null, 2) };
+      render(); $("k_val").focus();
+    }
+    else if (a === "idel") {
+      const n = itemName(x);
+      if (!await askConfirm("Delete \"" + n + "\"?", { title: "Delete " + ITM, ok: "Delete", danger: true })) return;
+      const d = await call("/" + P + (P === "kv" ? "/keys/delete" : "/objects/delete"), P === "kv" ? { namespace: cur, key: n } : { bucket: cur, key: n });
+      if (d) { await loadItems(false); say("pmsg", "ok", "Deleted " + n + "."); }
+    }
+    else if (a === "refresh") refreshUsage(true);
+  }
+
+  // ---------- usage
+  const fmtN = n => (n == null || isNaN(n)) ? "–" : Number(n).toLocaleString();
+  const label = k => k.replace(/_/g, " ").replace(/([a-z])([A-Z])/g, "$1 $2").replace(/^./, c => c.toUpperCase());
+  const bar = pct => '<div class="bar"><i class="' + (pct > 90 ? "hot" : "") + '" style="width:' + pct + '%"></i></div>';
+  const stat = (big, small, pct) => '<div class="stat"><b>' + big + "</b><span>" + small + "</span>" + (pct != null ? bar(pct) : "") + "</div>";
+  function renderUsage() {
+    const l = (st && st.limits) || {}, u = (st && st.usage) || {}, r = (st && st.requests) || {};
+    const used = [u.total_bytes, u.used_bytes, u.bytes, u.storage_bytes].find(v => typeof v === "number") ?? (st && st.enabled === false ? 0 : null);
+    const max = l.max_total_bytes;
+    const pct = used != null && max ? Math.min(100, Math.round(used / max * 100)) : 0;
+    const nsUsed = st && st.namespaces != null ? st.namespaces : (typeof u.namespaces === "number" ? u.namespaces : (typeof u.namespace_count === "number" ? u.namespace_count : null));
+    const nsMax = l.max_namespaces || l.max_buckets;
+    const nsPct = nsUsed != null && nsMax ? Math.min(100, Math.round(nsUsed / nsMax * 100)) : null;
+    const keys = [u.keys, u.key_count, u.total_keys, u.num_keys, u.objects, u.object_count, u.total_objects].find(v => typeof v === "number");
+    const days = r.days || [], peak = Math.max(1, ...days.map(d => d.requests));
+    const shortDay = d => { const t = new Date(d + "T00:00:00Z"); return isNaN(t) ? d.slice(5) : t.toLocaleDateString(undefined, { month: "short", day: "numeric", timeZone: "UTC" }); };
+
+    let h = head("Usage and limits", "What your plan allows and what you've used.");
+
+    h += '<h3 class="sec" style="margin-top:0">Requests</h3><div class="stats">' +
+      stat(fmtN(r.today), "Requests today (UTC)") +
+      stat(fmtN(r.total), "Total requests") +
+      stat(fmtN(r.reads), "Reads (download / list)") +
+      stat(fmtN(r.writes), "Writes (upload / create)") +
+      stat(fmtN(r.deletes), "Deletes") + "</div>";
+    if (days.length) {
+      h += '<h3 class="sec">Last 7 days</h3><div class="chart">' + days.map(d =>
+        '<div class="col" title="' + esc(d.day) + ": " + fmtN(d.requests) + ' requests"><b>' + (d.requests ? fmtN(d.requests) : "") + '</b><i style="height:' + Math.max(2, Math.round(d.requests / peak * 70)) + 'px"></i><em>' + esc(shortDay(d.day)) + "</em></div>").join("") + "</div>";
+    }
+
+    h += '<h3 class="sec">Storage and limits</h3><div class="stats">' +
+      stat(used != null ? esc(fmtBytes(used)) : "–", "Stored of " + (max ? esc(fmtBytes(max)) : "–") + (max && used != null ? " · " + pct + "%" : ""), max ? pct : null) +
+      stat(nsUsed != null ? fmtN(nsUsed) + (nsMax ? " / " + fmtN(nsMax) : "") : (nsMax ? "– / " + fmtN(nsMax) : "–"), label(GRPS) + " used", nsPct) +
+      (keys != null ? stat(fmtN(keys), "Objects stored") : "") +
+      stat((l.max_value_bytes || l.max_object_bytes) ? esc(fmtBytes(l.max_value_bytes || l.max_object_bytes)) : "–", "Max " + ITM + " size") + "</div>";
+
+    // anything else the KV server reports about this app
+    const shown = new Set(["total_bytes", "used_bytes", "bytes", "storage_bytes", "keys", "key_count", "total_keys", "num_keys", "objects", "object_count", "total_objects", "namespaces", "namespace_count", "buckets", "bucket_count"]);
+    const rows = Object.keys(u).filter(k => !shown.has(k) && ["string", "number", "boolean"].includes(typeof u[k]) && !/key$|secret|token|password|^id$/i.test(k)).map(k => {
+      const v = u[k], isB = typeof v === "number" && /bytes$/i.test(k), isD = typeof v === "string" && /^\d{4}-\d\d-\d\d/.test(v);
+      return "<div><span>" + esc(label(k)) + "</span><b>" + esc(isB ? fmtBytes(v) : typeof v === "number" ? fmtN(v) : isD ? new Date(v).toLocaleString() : String(v)) + "</b></div>";
+    });
+    if (rows.length) h += '<h3 class="sec">More details</h3><div class="kvtable">' + rows.join("") + "</div>";
+
+    $("panel").innerHTML = h + '<div class="row"><button class="btn ghost" data-act="refresh" type="button">Refresh</button></div><p class="msg" id="pmsg" hidden></p>';
+  }
+  async function refreshUsage(manual) {
+    const d = await call("/" + P + "/info");
+    if (!d) return;
+    st.usage = d.usage || {}; st.limits = Object.assign(st.limits || {}, d.limits || {}); st.requests = d.requests || st.requests || {}; st.enabled = d.enabled; st.namespaces = d.namespaces != null ? d.namespaces : st.namespaces;
+    if (tab === "usage") render(manual ? ["ok", "Usage updated."] : null);
+  }
+
+  // ---------- loading
+  // ---------- loading
+  function message(title, text, btn, href) {
+    $("content").innerHTML = '<div class="empty"><h2>' + esc(title) + "</h2><p>" + esc(text) + "</p>" +
+      (btn ? '<a class="btn" href="' + esc(href) + '">' + esc(btn) + "</a>" : "") + "</div>";
+  }
+
+  async function loadAll(pw) {
+    const { res, data: d } = await post("/s3/info", { appId: APP_ID, appPassword: pw });
+    if (res.status === 401 && /app password/i.test(d.error || "")) { forgetAppPw(); return showPasswordGate("That app password is wrong. Enter the right one."); }
+    if (res.status === 401) { location.replace("signup.html"); return; }
+    if (!res.ok || !d.success) {
+      if ($("pwMsg")) return say("pwMsg", "err", d.error || "Couldn’t load S3 storage.");
+      return message("Couldn’t load S3 storage", d.error || "Try again.", "Try again", location.pathname + location.search);
+    }
+    saveAppPw(pw);
+    st = { limits: d.limits || {}, usage: d.usage || {}, requests: d.requests || {}, enabled: d.enabled, namespaces: d.namespaces != null ? d.namespaces : null };
+    build();
+  }
+  async function load() {
+    const { u, p } = creds();
+    if (!u || !p || !APP_ID) return;
+    $("content").innerHTML = '<div class="layout"><div class="sk"></div></div>';
+    try {
+      const { res, data: d } = await post("/apps/list", {});
+      if (res.status === 401) return message("Please sign up again", "We couldn’t verify your account on this device.", "Sign up", "signup.html");
+      if (!res.ok || !d.success) throw new Error(d.error || "Request failed");
+      app = (d.apps || []).find(a => a.id === APP_ID);
+      if (!app) return message("App not found", "This app doesn’t exist or isn’t yours.", "Back to dashboard", "dashboard.html");
+      renderHeader();
+      const pw = storedAppPw();
+      if (pw) await loadAll(pw); else showPasswordGate();
+    } catch (err) {
+      console.error(err);
+      message("Couldn’t load your app", "Check your connection and try again.", "Try again", location.pathname + location.search);
+    }
+  }
+  load();
+</script>
+</body>
+</html>
