@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Import a project – Fast Site</title>
+<meta name="description" content="Create a new Fast Site app by uploading an existing project.">
+<link rel="icon" type="image/svg+xml" href="images/logo.svg">
+<script>
+  (function(){var u,p;try{u=localStorage.getItem("lp-username");p=localStorage.getItem("lp-password")}catch(e){}
+  if(!u||!p)location.replace("signup.html")})();
+</script>
+<script>
+  (function(){var t;try{t=localStorage.getItem("lp-theme")}catch(e){}
+  if(!t)t=matchMedia("(prefers-color-scheme:dark)").matches?"dark":"light";
+  document.documentElement.dataset.theme=t})();
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{color-scheme:light;--bg:#fff;--surface:#fff;--soft:#f4f4f5;--line:#e4e4e7;--text:#09090b;--muted:#52525b;--accent:#0e7490;--accent-ink:#fff;--glow:#dff3f7;--danger:#b91c1c;--ok:#16a34a}
+  [data-theme=dark]{color-scheme:dark;--bg:#000;--surface:#0a0a0a;--soft:#111113;--line:#262629;--text:#fafafa;--muted:#a1a1aa;--accent:#5be0f0;--accent-ink:#001418;--glow:#0b2c33;--danger:#f87171;--ok:#4ade80}
+  *{box-sizing:border-box}
+  body{margin:0;min-height:100vh;display:flex;flex-direction:column;background:var(--bg);color:var(--text);font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif;line-height:1.6;transition:background .2s,color .2s}
+  main{flex:1;padding:56px 24px 80px}
+  svg{fill:currentColor}
+  [hidden]{display:none!important}
+  a:focus-visible,button:focus-visible,input:focus-visible,textarea:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+
+  .wrap{max-width:1080px;margin:0 auto}
+  .step{font-size:13px;font-weight:600;color:var(--accent);letter-spacing:.04em;text-transform:uppercase;margin:0 0 8px}
+  h1{font-size:32px;letter-spacing:-.03em;line-height:1.15;margin:0 0 8px}
+  .sub{margin:0 0 28px;color:var(--muted);font-size:16px}
+  .dots{display:flex;gap:6px;margin:0 0 22px}
+  .dots i{width:28px;height:4px;border-radius:4px;background:var(--line);transition:background .2s}
+  .dots i.on{background:var(--accent)}
+
+  .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:11px 22px;border-radius:999px;font:600 15px Inter,sans-serif;text-decoration:none;cursor:pointer;border:1px solid var(--text);background:transparent;color:var(--text);transition:background .15s,filter .15s}
+  .btn:hover{background:var(--soft)}
+  .btn.main{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+  .btn.main:hover{filter:brightness(1.1);background:var(--accent)}
+  .btn:disabled{opacity:.6;cursor:not-allowed}
+  .acts{display:flex;gap:10px;justify-content:flex-end;margin-top:26px;flex-wrap:wrap}
+
+  /* step 1: the two choices */
+  .choices{display:grid;grid-template-columns:repeat(2,1fr);gap:20px;max-width:860px}
+  .choice{display:flex;flex-direction:column;gap:6px;text-align:left;padding:26px 24px;border:1.5px solid var(--line);border-radius:20px;background:var(--surface);color:var(--text);font:inherit;cursor:pointer;transition:border-color .15s,background .15s}
+  .choice:hover{border-color:var(--accent);background:var(--soft)}
+  .choice .num{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;background:var(--accent);color:var(--accent-ink);font-weight:700;font-size:15px;margin-bottom:6px}
+  .choice.alt .num{background:var(--soft);color:var(--text);border:1px solid var(--line)}
+  .choice b{font-size:18px;letter-spacing:-.01em;line-height:1.3}
+  .choice small{font-size:14px;color:var(--muted)}
+
+  /* step 2: name + description */
+  .card{max-width:560px;padding:28px;border:1px solid var(--line);border-radius:18px;background:var(--surface)}
+  label{display:block;font-size:14px;font-weight:600;margin-bottom:8px}
+  label .opt{font-weight:500;color:var(--muted)}
+  input[type=text],textarea{width:100%;padding:12px 16px;border-radius:12px;border:1px solid var(--line);background:var(--bg);color:var(--text);font:500 16px Inter,sans-serif}
+  textarea{min-height:110px;resize:vertical;line-height:1.5}
+  input[type=text]:focus,textarea:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+  input[type=text].bad{border-color:var(--danger);animation:shake .3s}
+  @keyframes shake{25%{transform:translateX(-5px)}75%{transform:translateX(5px)}}
+  .fg+.fg{margin-top:22px}
+  .hint{margin:8px 0 0;font-size:13px;color:var(--muted)}
+  .count{float:right;font-weight:500;color:var(--muted);font-size:13px}
+  .msg{display:none;align-items:flex-start;gap:10px;margin:16px 0 0;padding:10px 14px;border-radius:12px;border:1px solid var(--danger);background:color-mix(in srgb,var(--danger) 10%,transparent);color:var(--danger);font-size:14px;font-weight:500;line-height:1.45}
+  .msg.on{display:flex}
+  .msg svg{width:18px;height:18px;flex-shrink:0;margin-top:2px}
+
+  /* upload step */
+  .upcard{max-width:620px}
+  .drop{position:relative;display:flex;flex-direction:column;align-items:center;gap:6px;text-align:center;padding:48px 24px;border:1.5px dashed var(--line);border-radius:18px;background:var(--surface);cursor:pointer;transition:border-color .15s,background .15s}
+  .drop:hover,.drop.over{border-color:var(--accent);background:var(--soft)}
+  .drop .ico{width:52px;height:52px;border-radius:14px;display:grid;place-items:center;background:var(--soft);border:1px solid var(--line);color:var(--text);margin-bottom:10px}
+  .drop .ico svg{width:26px;height:26px}
+  .drop b{font-size:17px;letter-spacing:-.01em}
+  .drop small{color:var(--muted);font-size:14px}
+  .drop u{color:var(--accent);text-decoration:none;font-weight:600}
+  .drop input{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%}
+  .file{display:flex;align-items:center;gap:14px;padding:16px 18px;border:1px solid var(--line);border-radius:14px;background:var(--surface)}
+  .file .fi{width:42px;height:42px;border-radius:10px;display:grid;place-items:center;flex-shrink:0;background:var(--soft);border:1px solid var(--line);color:var(--text)}
+  .file .fi svg{width:22px;height:22px}
+  .file .ft{flex:1;min-width:0}
+  .file .ft b{display:block;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .file .ft small{color:var(--muted);font-size:13px}
+  .file .rm{width:34px;height:34px;border-radius:50%;border:1px solid var(--line);background:transparent;color:var(--muted);cursor:pointer;display:grid;place-items:center;transition:color .15s,border-color .15s}
+  .file .rm:hover{color:var(--danger);border-color:var(--danger)}
+  .file .rm svg{width:16px;height:16px}
+  .prog{margin:20px 0 0}
+  .prog div{height:6px;border-radius:6px;background:var(--line);overflow:hidden}
+  .prog i{display:block;height:100%;width:0;border-radius:6px;background:var(--accent);transition:width .2s}
+  .prog span{display:block;margin-top:8px;font-size:13px;font-weight:500;color:var(--muted)}
+
+  /* step 3: plans */
+  .bal{display:inline-block;margin:0 0 20px;padding:5px 14px;border-radius:999px;background:var(--soft);border:1px solid var(--line);font-size:13px;font-weight:600}
+  .plist{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:14px}
+  .plan{position:relative;display:flex;flex-direction:column;gap:6px;padding:20px 16px;text-align:left;border:1.5px solid var(--line);border-radius:16px;background:var(--surface);color:var(--text);font:inherit;cursor:pointer;transition:border-color .15s}
+  .plan:hover{border-color:var(--accent)}
+  .plan[aria-checked=true]{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+  .plan[aria-disabled=true]{opacity:.5;cursor:not-allowed}
+  .plan[aria-disabled=true]:hover{border-color:var(--line)}
+  .plan .pn{font-weight:700;font-size:1.05rem;letter-spacing:-.01em}
+  .plan .pp{font-size:1.5rem;font-weight:700;letter-spacing:-.03em}
+  .plan .pp small{font-size:.8rem;font-weight:500;color:var(--muted)}
+  .plan ul{list-style:none;margin:8px 0 0;padding:0;display:flex;flex-direction:column;gap:6px;font-size:.84rem;color:var(--muted)}
+  .plan li{display:flex;gap:7px;align-items:flex-start}
+  .plan li::before{content:"\2713";color:var(--ok);font-weight:700}
+  .plan li.no::before{content:"\2715";color:var(--muted)}
+  .plan li b{color:var(--text)}
+  .plan .hint{margin:6px 0 0;color:var(--danger)}
+  .tag{position:absolute;top:-10px;right:12px;padding:2px 10px;border-radius:999px;background:var(--accent);color:var(--accent-ink);font-size:11px;font-weight:700}
+
+  .empty{border:1px dashed var(--line);border-radius:22px;background:var(--soft);padding:56px 24px;text-align:center;max-width:620px}
+  .empty h2{margin:0 0 6px;font-size:22px;letter-spacing:-.02em}
+  .empty p{margin:0 0 22px;color:var(--muted)}
+  .sk{height:200px;max-width:860px;border-radius:20px;border:1px solid var(--line);background:linear-gradient(100deg,var(--soft) 30%,var(--line) 50%,var(--soft) 70%);background-size:300% 100%;animation:shine 1.4s linear infinite}
+  @keyframes shine{to{background-position:-300% 0}}
+
+  .toast{position:fixed;left:50%;bottom:28px;transform:translate(-50%,20px);opacity:0;pointer-events:none;background:var(--text);color:var(--bg);font-weight:600;font-size:14px;padding:11px 20px;border-radius:999px;transition:.25s;z-index:1000}
+  .toast.on{opacity:1;transform:translate(-50%,0)}
+
+  @media(max-width:700px){h1{font-size:27px}.choices{grid-template-columns:1fr}.acts .btn{flex:1}}
+  @media(prefers-reduced-motion:reduce){*,::after{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+
+<div id="navbar"></div>
+
+<main>
+  <div class="wrap">
+    <div class="dots" id="dots" aria-hidden="true"><i></i><i></i><i></i></div>
+    <p class="step" id="step">&nbsp;</p>
+    <h1 id="title">&nbsp;</h1>
+    <p class="sub" id="sub">&nbsp;</p>
+    <div id="view" aria-live="polite"></div>
+  </div>
+</main>
+
+<div id="footer"></div>
+<div class="toast" id="toast" role="status"></div>
+
+<script>
+  const API_BASE = "https://lite-pages.thecodemonai.workers.dev/api";
+  const NAME_RE = /^[a-z0-9][a-z0-9_-]{2,31}$/;
+  const MAX_DESC = 500;
+  const MAX_FILE = 20 * 1024 * 1024; // 20 MB
+  const UPLOAD_PATH = "/apps/upload"; // change this if your upload endpoint is named differently
+
+  const $ = id => document.getElementById(id);
+  const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const fmt = n => Number(n).toLocaleString();
+  const size = b => b >= 1048576 ? (b / 1048576).toFixed(1) + " MB" : Math.max(1, Math.round(b / 1024)) + " KB";
+
+  async function loadInto(id, url) {
+    try {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(res.status);
+      $(id).innerHTML = await res.text();
+    } catch (e) { console.error("Could not load " + url, e); }
+  }
+  loadInto("navbar", "assets/navbar.html");
+  loadInto("footer", "assets/footer.html");
+
+  document.addEventListener("click", e => {
+    if (!e.target.closest("[data-theme-toggle]")) return;
+    const root = document.documentElement;
+    const next = root.dataset.theme === "dark" ? "light" : "dark";
+    root.dataset.theme = next;
+    try { localStorage.setItem("lp-theme", next); } catch (err) {}
+  });
+
+  function creds() {
+    try { return { u: localStorage.getItem("lp-username"), p: localStorage.getItem("lp-password") }; }
+    catch (e) { return { u: null, p: null }; }
+  }
+  async function api(path, body) {
+    const res = await fetch(API_BASE + path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    let data = {};
+    try { data = await res.json(); } catch (e) {}
+    if (!data.error && !res.ok) data.error = "Server error (HTTP " + res.status + ")";
+    return { ok: res.ok && data.success === true, status: res.status, data };
+  }
+  let toastTimer;
+  function toast(text) {
+    const t = $("toast");
+    t.textContent = text; t.classList.add("on");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => t.classList.remove("on"), 3200);
+  }
+
+  // ---------- state
+  let apps = [], max = null, credits = 0, freeUsed = 0, maxFree = 1;
+  let plans = [
+    { name: "Basic", price: 150, backups: 5 }, { name: "Standard", price: 200, backups: 7 },
+    { name: "Pro", price: 250, backups: 9 }, { name: "Enterprise", price: 300, backups: 11 }
+  ];
+  const S = { step: 1, name: "", desc: "", plan: "", file: null, created: null };
+
+  // Everything each plan includes. A leading "!" marks something the plan does not include.
+  const BENEFITS = {
+    Free: ["Your site on a <b>.fastsite.host</b> address", "<b>100,000</b> requests a day", "!No backups", "KV database and S3 storage: <b>1 MB</b> each", "Up to <b>3</b> cache rules", "Server-side code up to <b>2 MB</b>", "!No server-side rendering", "Basic visit stats"],
+    Basic: ["Your site on a <b>.fastsite.host</b> address", "<b>1 million</b> requests a day", "<b>5 backups</b> at a time", "KV database and S3 storage: <b>25 MB</b> each", "Up to <b>20</b> cache rules", "Server-side code up to <b>10 MB</b>", "Server-side rendering for <b>5</b> files", "Full visit details for 7 days"],
+    Standard: ["Your site on a <b>.fastsite.host</b> address", "<b>10 million</b> requests a day", "<b>7 backups</b> at a time", "KV database and S3 storage: <b>100 MB</b> each", "Up to <b>20</b> cache rules", "Server-side code up to <b>20 MB</b>", "Server-side rendering for <b>5</b> files", "Full visit details for 7 days"],
+    Pro: ["Your site on a <b>.fastsite.host</b> address", "<b>100 million</b> requests a day", "<b>9 backups</b> at a time", "KV database and S3 storage: <b>500 MB</b> each", "Up to <b>100</b> cache rules", "Server-side code up to <b>30 MB</b>", "Server-side rendering for <b>15</b> files", "Full visit details for 7 days"],
+    Enterprise: ["Your site on a <b>.fastsite.host</b> address", "<b>1 billion</b> requests a day", "<b>11 backups</b> at a time", "KV database and S3 storage: <b>2 GB</b> each", "Up to <b>500</b> cache rules", "Server-side code up to <b>40 MB</b>", "Server-side rendering for <b>30</b> files", "Full visit details for 7 days"]
+  };
+
+  const atLimit = () => !!max && apps.length >= max;
+
+  // ---------- header
+  function head(step, title, sub) {
+    $("step").textContent = step ? "Step " + step + " of 3" : "";
+    $("step").hidden = !step;
+    $("title").textContent = title;
+    $("sub").textContent = sub;
+    $("sub").hidden = !sub;
+    [...$("dots").children].forEach((d, i) => d.classList.toggle("on", step && i < step));
+    $("dots").hidden = !step;
+  }
+
+  // ---------- step 2: name + description
+  function viewName() {
+    S.step = 1;
+    head(1, "Name your app", "Choose a unique name and, if you like, tell us what it’s for.");
+    $("view").innerHTML =
+      '<form class="card" id="nameForm" novalidate>' +
+        '<div class="fg"><label for="appName">App name</label>' +
+        '<input type="text" id="appName" maxlength="32" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="my-awesome-app" value="' + esc(S.name) + '">' +
+        '<p class="hint">3–32 characters: lowercase letters, numbers, - and _. You can’t change it later.</p></div>' +
+        '<div class="fg"><label for="appDesc">Description <span class="opt">(optional)</span><span class="count" id="descCount"></span></label>' +
+        '<textarea id="appDesc" maxlength="' + MAX_DESC + '" placeholder="What is this app for?">' + esc(S.desc) + "</textarea></div>" +
+        '<div class="msg" id="msg" role="alert"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm1 15h-2v-2h2zm0-4h-2V7h2z"/></svg><span id="msgText"></span></div>' +
+        '<div class="acts"><a class="btn" href="dashboard.html">Cancel</a><button class="btn main" type="submit">Continue</button></div>' +
+      "</form>";
+    const nameEl = $("appName"), descEl = $("appDesc");
+    const count = () => { $("descCount").textContent = descEl.value.length + " / " + MAX_DESC; };
+    count();
+    nameEl.focus();
+    nameEl.addEventListener("input", e => {
+      const el = e.target, pos = el.selectionStart;
+      el.value = el.value.toLowerCase();
+      try { el.setSelectionRange(pos, pos); } catch (err) {}
+      nameEl.classList.remove("bad"); $("msg").classList.remove("on");
+    });
+    descEl.addEventListener("input", count);
+    $("nameForm").addEventListener("submit", e => {
+      e.preventDefault();
+      const name = nameEl.value.trim().toLowerCase();
+      const fail = t => { $("msgText").textContent = t; $("msg").classList.add("on"); nameEl.classList.remove("bad"); void nameEl.offsetWidth; nameEl.classList.add("bad"); nameEl.focus(); };
+      if (!NAME_RE.test(name)) return fail("Use 3–32 characters: lowercase letters, numbers, - or _ (don’t start with - or _).");
+      if (apps.some(a => a.name.toLowerCase() === name)) return fail("You already have an app named “" + name + "”. Pick a different name.");
+      S.name = name; S.desc = descEl.value.trim();
+      viewFile();
+    });
+  }
+
+  // ---------- step 2: upload
+  const ICO_UP = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.35 10.04A7.49 7.49 0 0 0 12 4C9.11 4 6.6 5.64 5.35 8.04A5.994 5.994 0 0 0 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM14 13v4h-4v-4H7l5-5 5 5z"/></svg>';
+  const ICO_FILE = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6h-8l-2-2H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2z"/></svg>';
+  function viewFile() {
+    S.step = 2;
+    head(2, "Upload your project", "Upload a .zip with your HTML, CSS, JavaScript and images (max 20 MB).");
+    $("view").innerHTML =
+      '<div class="upcard">' +
+        '<div id="zone"></div>' +
+        '<div class="msg" id="msg" role="alert"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm1 15h-2v-2h2zm0-4h-2V7h2z"/></svg><span id="msgText"></span></div>' +
+        '<div class="acts"><button class="btn" type="button" id="back">Back</button><button class="btn main" type="button" id="next">Continue</button></div>' +
+      "</div>";
+    const err = t => { $("msgText").textContent = t; $("msg").classList.add("on"); };
+    const paint = () => {
+      $("next").disabled = !S.file;
+      if (S.file) {
+        $("zone").innerHTML = '<div class="file"><span class="fi">' + ICO_FILE + '</span><span class="ft"><b>' + esc(S.file.name) + '</b><small>' + size(S.file.size) + ' · ready to upload</small></span><button type="button" class="rm" id="rm" aria-label="Remove file"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 6.4L17.6 5 12 10.6 6.4 5 5 6.4 10.6 12 5 17.6 6.4 19 12 13.4 17.6 19 19 17.6 13.4 12z"/></svg></button></div>';
+        $("rm").addEventListener("click", () => { S.file = null; paint(); });
+      } else {
+        $("zone").innerHTML = '<label class="drop" id="drop"><span class="ico">' + ICO_UP + '</span><b>Drag &amp; drop your .zip here</b><small>or <u>browse your files</u> · up to 20 MB</small><input type="file" id="fileIn" accept=".zip,application/zip,application/x-zip-compressed"></label>';
+        const drop = $("drop");
+        ["dragenter", "dragover"].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add("over"); }));
+        ["dragleave", "drop"].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove("over"); }));
+        drop.addEventListener("drop", e => take(e.dataTransfer.files[0]));
+        $("fileIn").addEventListener("change", e => take(e.target.files[0]));
+      }
+    };
+    function take(f) {
+      $("msg").classList.remove("on");
+      if (!f) return;
+      if (!/\.zip$/i.test(f.name)) return err("Please upload a .zip file. Zip up your project folder first.");
+      if (f.size > MAX_FILE) return err("That file is " + size(f.size) + ". The limit is 20 MB.");
+      if (f.size === 0) return err("That file is empty.");
+      S.file = f; paint();
+    }
+    paint();
+    $("back").addEventListener("click", viewName);
+    $("next").addEventListener("click", () => { if (!S.file) return err("Choose a file first."); viewPlans(); });
+  }
+
+  // ---------- step 3: plan
+  function planCards() {
+    const freeFull = freeUsed >= maxFree;
+    const all = [{ name: "Free", price: 0, free: true }, ...plans];
+    return all.map(pl => {
+      const off = pl.free && freeFull, poor = !pl.free && credits < pl.price, sel = S.plan === pl.name;
+      let list = (BENEFITS[pl.name] || []).slice();
+      if (!list.length) list = ["Your site on a <b>.fastsite.host</b> address"].concat(pl.free ? ["!No backups"] : ["<b>" + pl.backups + " backups</b> at a time"]);
+      const feats = list.map(t => t.charAt(0) === "!" ? '<li class="no">' + t.slice(1) + "</li>" : "<li>" + t + "</li>").join("");
+      const note = off ? '<small class="hint">Free app limit reached</small>' : (poor ? '<small class="hint">Not enough credits</small>' : "");
+      return '<button type="button" class="plan" role="radio" data-plan="' + esc(pl.name) + '" aria-checked="' + sel + '"' + (off || poor ? ' aria-disabled="true"' : "") + ">" +
+        (pl.name === "Pro" ? '<span class="tag">Popular</span>' : "") +
+        '<span class="pn">' + esc(pl.name) + "</span>" +
+        '<span class="pp">' + (pl.free ? "Free" : fmt(pl.price) + " <small>credits</small>") + "</span>" +
+        "<ul>" + feats + "</ul>" + note + "</button>";
+    }).join("");
+  }
+  function refreshPlans() {
+    $("plist").innerHTML = planCards();
+    const cur = $("plist").querySelector('[data-plan="' + S.plan + '"]');
+    $("create").disabled = !S.created && (!cur || cur.getAttribute("aria-disabled") === "true");
+  }
+  function viewPlans() {
+    S.step = 3;
+    head(3, "Choose a plan", "Pick a plan for " + S.name + ". Your upload starts as soon as the app is created.");
+    // default: Free when a free slot is left, otherwise the cheapest plan they can afford
+    const firstPaid = plans.find(pl => credits >= pl.price);
+    if (!S.plan) S.plan = freeUsed < maxFree ? "Free" : (firstPaid ? firstPaid.name : "");
+    $("view").innerHTML =
+      '<span class="bal">Your credits: ' + fmt(credits) + "</span>" +
+      '<div class="plist" id="plist" role="radiogroup" aria-label="Plans"></div>' +
+      '<div class="prog" id="prog" hidden><div><i id="progBar"></i></div><span id="progTxt"></span></div>' +
+      '<div class="msg" id="msg" role="alert"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm1 15h-2v-2h2zm0-4h-2V7h2z"/></svg><span id="msgText"></span></div>' +
+      '<div class="acts"><button class="btn" type="button" id="back">Back</button><button class="btn main" type="button" id="create">Create app</button></div>';
+    refreshPlans();
+    if (S.created) { $("create").textContent = "Retry upload"; $("back").disabled = true; }
+    $("plist").addEventListener("click", e => {
+      const b = e.target.closest("[data-plan]");
+      if (S.created || !b || b.getAttribute("aria-disabled") === "true") return;
+      S.plan = b.dataset.plan; $("msg").classList.remove("on"); refreshPlans();
+    });
+    $("back").addEventListener("click", () => { if (!S.created) viewFile(); });
+    $("create").addEventListener("click", createApp);
+  }
+
+  function planErr(text) { $("msgText").textContent = text; $("msg").classList.add("on"); }
+
+  function setProg(f, txt) {
+    $("prog").hidden = false;
+    $("progBar").style.width = Math.round(f * 100) + "%";
+    $("progTxt").textContent = txt || ("Uploading " + Math.round(f * 100) + "%");
+  }
+  function uploadFile(app) {
+    return new Promise((resolve, reject) => {
+      const { u, p } = creds();
+      const fd = new FormData();
+      fd.append("username", u); fd.append("password", p);
+      fd.append("appId", app.id); fd.append("appPassword", app.pw);
+      fd.append("file", S.file, S.file.name);
+      const x = new XMLHttpRequest();
+      x.open("POST", API_BASE + UPLOAD_PATH);
+      x.upload.onprogress = e => { if (e.lengthComputable) setProg(e.loaded / e.total * 0.98); };
+      x.onload = () => {
+        let d = {}; try { d = JSON.parse(x.responseText); } catch (e) {}
+        if (x.status >= 200 && x.status < 300 && d.success !== false) resolve(d);
+        else reject(new Error(d.error || "Upload failed (HTTP " + x.status + ")"));
+      };
+      x.onerror = () => reject(new Error("Couldn’t reach the server"));
+      x.send(fd);
+    });
+  }
+
+  async function createApp() {
+    const btn = $("create"), { u, p } = creds();
+    if (!u || !p) return planErr("You’re signed out. Please sign up again.");
+    if (!S.created && !S.plan) return planErr("Choose a plan first.");
+    if (!S.file) return planErr("Choose a file to upload first.");
+    $("msg").classList.remove("on");
+    btn.disabled = true;
+    let done = false;
+    try {
+      if (!S.created) {
+        btn.textContent = "Creating…";
+        const body = { username: u, password: p, appName: S.name };
+        if (S.desc) body.description = S.desc;
+        if (S.plan !== "Free") body.plan = S.plan;
+        const r = await api("/apps/create", body);
+        if (!r.ok) {
+          if (r.status === 409) planErr("“" + S.name + "” is already taken by another app. Go back and pick a different name.");
+          else if (r.status === 402) planErr(r.data.error || "Not enough credits for this plan.");
+          else if (r.status === 403) planErr(r.data.error || "You’ve reached the limit of " + max + " apps.");
+          else if (r.status === 401) planErr("We couldn’t verify your account. Please sign up again.");
+          else planErr(r.data.error || "Could not create the app.");
+          return;
+        }
+        S.created = { id: r.data.app.id, name: r.data.app.name, pw: r.data.appPassword };
+        // The same place the dashboard and the panel pages read the app password from.
+        try { localStorage.setItem("lp-app-password:" + S.created.id, S.created.pw); } catch (err) {}
+        $("back").disabled = true;
+      }
+      btn.textContent = "Uploading…";
+      setProg(0, "Starting upload…");
+      await uploadFile(S.created);
+      setProg(1, "Done!");
+      done = true;
+      toast(S.created.name + " created");
+      setTimeout(() => { location.href = "panel/overview?id=" + encodeURIComponent(S.created.id); }, 500);
+    } catch (err) {
+      console.error(err);
+      if (S.created) { $("prog").hidden = true; planErr("Your app was created, but the upload failed: " + err.message + ". Press “Retry upload” to try again."); }
+      else planErr("Couldn’t reach the server. Check your connection and try again.");
+    } finally {
+      if (!done) { btn.disabled = false; btn.textContent = S.created ? "Retry upload" : "Create app"; }
+    }
+  }
+
+  // ---------- start
+  function message(title, text, btn, href) {
+    head(0, "", "");
+    $("view").innerHTML = '<div class="empty"><h2>' + esc(title) + "</h2><p>" + esc(text) + "</p>" + (btn ? '<a class="btn main" href="' + esc(href) + '">' + esc(btn) + "</a>" : "") + "</div>";
+  }
+  async function init() {
+    const { u, p } = creds();
+    if (!u || !p) { location.replace("signup.html"); return; }
+    head(0, "Import a project", "");
+    $("view").innerHTML = '<div class="sk"></div>';
+    try {
+      const r = await api("/apps/list", { username: u, password: p });
+      if (r.status === 401) return message("Please sign up again", "We couldn’t verify your account on this device.", "Sign up", "signup.html");
+      if (!r.ok) throw new Error(r.data.error || "Request failed");
+      apps = r.data.apps || [];
+      max = r.data.max || null;
+      if (typeof r.data.credits === "number") credits = r.data.credits;
+      freeUsed = typeof r.data.freeUsed === "number" ? r.data.freeUsed : apps.filter(a => (a.plan || "Free") === "Free").length;
+      if (r.data.maxFree) maxFree = r.data.maxFree;
+      if (Array.isArray(r.data.plans) && r.data.plans.length) plans = r.data.plans;
+      if (atLimit()) return message("App limit reached", "You’ve reached the limit of " + max + " apps.", "Back to your apps", "dashboard.html");
+      viewName();
+    } catch (err) {
+      console.error(err);
+      message("Couldn’t load your account", "Check your connection and try again.", "Try again", "upload-existing.html");
+    }
+  }
+  init();
+</script>
+</body>
+</html>
