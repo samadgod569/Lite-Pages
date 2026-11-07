@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Teams – Fast Site</title>
+<meta name="description" content="Invite people to work on your Fast Site app with you.">
+<link rel="icon" type="image/svg+xml" href="images/logo.svg">
+<script>
+  (function(){var u,p;try{u=localStorage.getItem("lp-username");p=localStorage.getItem("lp-password")}catch(e){}
+  if(!u||!p)location.replace("signup.html");
+  else if(!new URLSearchParams(location.search).get("id"))location.replace("dashboard.html")})();
+</script>
+<script>
+  (function(){var t;try{t=localStorage.getItem("lp-theme")}catch(e){}
+  if(!t)t=matchMedia("(prefers-color-scheme:dark)").matches?"dark":"light";
+  document.documentElement.dataset.theme=t})();
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{color-scheme:light;--bg:#fff;--surface:#fff;--soft:#f6f6f7;--line:#e4e4e7;--text:#09090b;--muted:#5b5b66;--accent:#0e7490;--accent-ink:#fff;--danger:#b91c1c;--ok:#16a34a}
+  [data-theme=dark]{color-scheme:dark;--bg:#000;--surface:#0a0a0a;--soft:#111113;--line:#262629;--text:#fafafa;--muted:#a1a1aa;--accent:#5be0f0;--accent-ink:#001418;--danger:#f87171;--ok:#4ade80}
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{margin:0;min-height:100vh;display:flex;flex-direction:column;background:var(--bg);color:var(--text);font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif;line-height:1.55;overflow-x:hidden}
+  main{flex:1;padding:32px 20px 64px}
+  [hidden]{display:none!important}
+  .wrap{max-width:1040px;margin:0 auto}
+  h1{font-size:26px;letter-spacing:-.02em;line-height:1.2;margin:0 0 4px}
+  .sub{margin:0 0 24px;color:var(--muted);font-size:14.5px}
+  .sub b{color:var(--text)}
+  a:focus-visible,button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+  .layout{display:grid;grid-template-columns:minmax(0,1fr);gap:18px;align-items:start}
+  .nav{position:static;display:flex;flex-direction:row;overflow-x:auto;gap:6px;padding-bottom:10px;border-bottom:1px solid var(--line);scrollbar-width:none}
+  .nav::-webkit-scrollbar{display:none}
+  .nv{text-align:left;padding:8px 12px;border:1px solid var(--line);border-radius:8px;background:none;color:var(--muted);font:500 14px Inter,sans-serif;cursor:pointer;white-space:nowrap;flex-shrink:0}
+  .nv:hover{background:var(--soft);color:var(--text)}
+  .nv.on{background:var(--soft);color:var(--text);font-weight:600;border-color:var(--accent)}
+  .nv i{font-style:normal;margin-left:6px;padding:0 7px;border-radius:999px;background:var(--accent);color:var(--accent-ink);font-size:12px;font-weight:700}
+  .panel{min-width:0}
+  .panel h2{margin:0 0 2px;font-size:19px;letter-spacing:-.01em}
+  .lead{margin:0 0 18px;font-size:14px;color:var(--muted)}
+  .lead b{color:var(--text)}
+
+  .list{border:1px solid var(--line);border-radius:12px;background:var(--surface);overflow:hidden}
+  .pill{display:inline-block;padding:2px 10px;border-radius:999px;background:var(--soft);border:1px solid var(--line);font-size:12px;font-weight:600;color:var(--muted)}
+  .pill.ok{color:var(--ok)}
+  .hint{margin:7px 0 0;font-size:12.5px;color:var(--muted)}
+
+  .field{display:flex;align-items:stretch;border:1px solid var(--line);border-radius:8px;background:var(--surface);overflow:hidden;max-width:420px}
+  .field:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 20%,transparent)}
+  .field input{flex:1;min-width:0;padding:9px 12px;border:0;outline:0;background:transparent;color:var(--text);font:500 14.5px Inter,sans-serif}
+  .field input::placeholder{color:var(--muted);opacity:.7}
+  .field input:disabled{opacity:.5;cursor:not-allowed}
+  .label{display:block;margin:0 0 6px;font-size:13px;font-weight:600;color:var(--muted)}
+
+  .row{display:flex;gap:8px;flex-wrap:wrap;margin-top:16px}
+  .btn{display:inline-flex;align-items:center;justify-content:center;padding:9px 16px;border-radius:8px;font:600 14px Inter,sans-serif;text-decoration:none;cursor:pointer;border:1px solid var(--accent);background:var(--accent);color:var(--accent-ink)}
+  .btn:hover{opacity:.9}
+  .btn:disabled{opacity:.5;cursor:not-allowed}
+  .btn.ghost{background:transparent;color:var(--text);border-color:var(--line)}
+  .btn.ghost:hover{border-color:var(--accent);opacity:1}
+  .btn.danger{background:transparent;color:var(--danger);border-color:color-mix(in srgb,var(--danger) 45%,var(--line))}
+  .btn.small{padding:6px 12px;font-size:13px}
+
+  .msg{margin:14px 0 0;padding:10px 14px;border-radius:8px;font-size:14px;border:1px solid var(--line);background:var(--soft)}
+  .msg.ok{border-color:color-mix(in srgb,var(--ok) 45%,var(--line));color:var(--ok)}
+  .msg.err{border-color:color-mix(in srgb,var(--danger) 45%,var(--line));color:var(--danger)}
+  .msg.info{color:var(--muted)}
+
+  .rule{display:grid;grid-template-columns:36px minmax(0,1fr) auto;gap:12px;align-items:center;padding:12px 16px}
+  .rule+.rule{border-top:1px solid var(--line)}
+  .rule .n{width:36px;height:36px;border-radius:50%;background:var(--soft);border:1px solid var(--line);display:grid;place-items:center;font-size:14px;font-weight:700;color:var(--muted);overflow:hidden}
+  .rule .n img{width:100%;height:100%;object-fit:cover;display:block}
+  .rule .m{min-width:0}
+  .rule .m b{display:block;font-size:14.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .rule .m small{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px;color:var(--muted);font-size:12.5px;align-items:center}
+  .rule .m code{font:600 12.5px ui-monospace,SFMono-Regular,Menlo,monospace;padding:1px 7px;border-radius:6px;background:var(--soft);border:1px solid var(--line);color:var(--text)}
+  .acts{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+  .acts .btn{padding:5px 10px;font-size:12.5px}
+  .none{padding:22px 14px;text-align:center;color:var(--muted);font-size:14px;border:1px dashed var(--line);border-radius:12px;background:var(--soft)}
+  .form{margin-top:18px;padding:18px;border:1px solid var(--line);border-radius:12px;background:var(--surface)}
+  .form>*+*{margin-top:14px}
+  .form h3{margin:0;font-size:15px}
+  .form>.hint{margin-top:8px}
+  .form>.row{margin-top:18px}
+  h3.sec{margin:24px 0 8px;font-size:15px}
+  .about{margin-top:22px}
+  .about p{margin:0 0 10px;font-size:14px;color:var(--muted)}
+  .about p b{color:var(--text)}
+
+  .sk{border:1px solid var(--line);border-radius:12px;height:240px;background:linear-gradient(100deg,var(--soft) 30%,var(--line) 50%,var(--soft) 70%);background-size:300% 100%;animation:shine 1.4s linear infinite}
+  @keyframes shine{to{background-position:-300% 0}}
+  .empty{border:1px dashed var(--line);border-radius:14px;background:var(--soft);padding:48px 24px;text-align:center}
+  .empty h2{margin:0 0 6px;font-size:21px}
+  .empty p{margin:0 0 20px;color:var(--muted)}
+  .gate{max-width:480px}
+
+  .mdl{position:fixed;inset:0;z-index:1100;display:grid;place-items:center;padding:20px;background:color-mix(in srgb,#000 55%,transparent);animation:ddFade .12s ease-out}
+  .mdl-box{width:100%;max-width:400px;padding:20px;background:var(--surface);color:var(--text);border:1px solid var(--line);border-radius:14px;box-shadow:0 20px 50px rgba(0,0,0,.35);animation:ddIn .14s ease-out}
+  .mdl-box h3{margin:0 0 6px;font-size:17px}
+  .mdl-box p{margin:0;color:var(--muted);font-size:14px;white-space:pre-line}
+  .mdl-box .row{justify-content:flex-end;margin-top:20px}
+  .btn.danger.solid{background:var(--danger);border-color:var(--danger);color:#fff}
+  @keyframes ddIn{from{opacity:0;transform:translateY(-4px)}}
+  @keyframes ddFade{from{opacity:0}}
+
+  @media(max-width:820px){main{padding:24px 16px 48px}}
+  @media(max-width:560px){
+    h1{font-size:23px}
+    .field{max-width:none}
+    .rule{grid-template-columns:36px minmax(0,1fr)}
+    .rule .acts{grid-column:1/-1;justify-content:flex-start}
+    .form{padding:14px}
+  }
+  @media(prefers-reduced-motion:reduce){*,::after{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+
+<div id="panelEssentials"></div>
+
+<main>
+  <div class="wrap">
+    <header>
+      <h1>Teams</h1>
+      <p class="sub" id="sub">&nbsp;</p>
+    </header>
+    <div id="content" aria-live="polite"></div>
+  </div>
+</main>
+
+<div id="footer"></div>
+
+<script>
+  const API_BASE = "https://lite-pages.thecodemonai.workers.dev/api";
+  const APP_ID = new URLSearchParams(location.search).get("id") || "";
+  let app = null, st = null, tab = "members", isOwner = false, ownerName = "";
+
+  const $ = id => document.getElementById(id);
+  const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+  function inject(id, url) {
+    fetch(url).then(r => r.ok ? r.text() : "").then(html => {
+      const box = $(id);
+      box.innerHTML = html;
+      box.querySelectorAll("script").forEach(old => {
+        const s = document.createElement("script");
+        [...old.attributes].forEach(a => s.setAttribute(a.name, a.value));
+        s.textContent = old.textContent;
+        old.replaceWith(s);
+      });
+    }).catch(e => console.error("Could not load " + url, e));
+  }
+  inject("panelEssentials", "../assets/panel-essentials.html");
+  inject("footer", "../assets/footer-panel.html");
+
+  // pretty replacement for confirm(): await askConfirm("text", { title, ok, danger })
+  window.askConfirm = function (text, o) {
+    o = o || {};
+    return new Promise(res => {
+      const prev = document.activeElement;
+      const m = document.createElement("div"); m.className = "mdl";
+      m.innerHTML = '<div class="mdl-box" role="alertdialog" aria-modal="true" aria-labelledby="mdlT"><h3 id="mdlT">' + esc(o.title || "Are you sure?") + "</h3><p>" + esc(text) + "</p>" +
+        '<div class="row"><button class="btn ghost" type="button" data-r="0">Cancel</button><button class="btn' + (o.danger ? " danger solid" : "") + '" type="button" data-r="1">' + esc(o.ok || "Confirm") + "</button></div></div>";
+      const done = v => { document.removeEventListener("keydown", key, true); m.remove(); if (prev && prev.focus && prev.isConnected) prev.focus(); res(v); };
+      const key = e => {
+        if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); done(false); }
+        else if (e.key === "Tab") {
+          const b = m.querySelectorAll("button"); e.preventDefault();
+          (document.activeElement === b[0] ? b[1] : b[0]).focus();
+        }
+      };
+      m.addEventListener("click", e => { const b = e.target.closest("button"); if (b) done(b.dataset.r === "1"); else if (e.target === m) done(false); });
+      document.addEventListener("keydown", key, true);
+      document.body.appendChild(m);
+      m.querySelector('[data-r="1"]').focus();
+    });
+  };
+
+  // ---------- credentials / api
+  function creds() {
+    try { return { u: localStorage.getItem("lp-username"), p: localStorage.getItem("lp-password") }; }
+    catch (e) { return { u: null, p: null }; }
+  }
+  const storedAppPw = () => { try { return localStorage.getItem("lp-app-password:" + APP_ID) || ""; } catch (e) { return ""; } };
+  const saveAppPw = pw => { try { localStorage.setItem("lp-app-password:" + APP_ID, pw); } catch (e) {} };
+  const forgetAppPw = () => { try { localStorage.removeItem("lp-app-password:" + APP_ID); } catch (e) {} };
+  const appPassword = () => storedAppPw() || ($("apw") ? $("apw").value : "");
+
+  async function post(path, extra) {
+    const { u, p } = creds();
+    const res = await fetch(API_BASE + path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(Object.assign({ username: u, password: p }, extra))
+    });
+    let data = {};
+    try { data = await res.json(); } catch (e) {}
+    return { res, data };
+  }
+  const appPost = (path, extra) => post(path, Object.assign({ appId: APP_ID, appPassword: appPassword() }, extra));
+
+  function say(id, kind, text) {
+    const el = $(id);
+    if (!el) return;
+    if (!text) { el.hidden = true; el.textContent = ""; return; }
+    el.className = "msg " + kind;
+    el.textContent = text;
+    el.hidden = false;
+  }
+  function commonErrors(res, data) {
+    if (res.status === 401 && /app password/i.test(data.error || "")) {
+      forgetAppPw(); st = null;
+      showPasswordGate("That app password is wrong. Enter the right one.");
+      return true;
+    }
+    if (res.status === 401) { location.replace("signup.html"); return true; }
+    return false;
+  }
+  const netErr = "Network error. Check your connection and try again.";
+
+  // ---------- helpers
+  const head = (t, l) => "<h2>" + esc(t) + '</h2><p class="lead">' + l + "</p>";
+  const fmtDate = iso => new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+  const fmtTime = iso => new Date(iso).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  function timeLeft(iso) {
+    const ms = Date.parse(iso) - Date.now();
+    if (ms <= 0) return "expired";
+    const m = Math.floor(ms / 60000), h = Math.floor(m / 60);
+    return "expires in " + (h >= 1 ? h + "h " + (m % 60) + "m" : Math.max(1, m) + "m");
+  }
+  const initial = s => esc(String(s || "?").charAt(0).toUpperCase());
+  // profile picture, or the first letter when there is none (or it fails to load)
+  const avatar = (name, url) => '<span class="n">' + (url ? '<img class="pf" src="' + esc(url) + '" alt="" loading="lazy" referrerpolicy="no-referrer" data-i="' + initial(name) + '">' : initial(name)) + "</span>";
+  document.addEventListener("error", e => {
+    const t = e.target;
+    if (t && t.tagName === "IMG" && t.classList.contains("pf")) t.replaceWith(document.createTextNode(t.dataset.i || "?"));
+  }, true);
+
+  // ---------- header + password gate
+  function renderHeader() {
+    document.title = app.name + " – Teams – Fast Site";
+    $("sub").innerHTML = "App <b>" + esc(app.name) + "</b> · " + (isOwner ? "you’re the owner" : "you’re a team member");
+  }
+  function showPasswordGate(errText) {
+    $("content").innerHTML =
+      '<div class="gate"><h2 style="margin:0 0 2px;font-size:19px">App password</h2>' +
+      '<p class="lead">Teams need the app password. It was shown once when you created the app, or when you joined the team.</p>' +
+      '<div class="field"><input id="apw" type="password" autocomplete="current-password" placeholder="App password"></div>' +
+      '<div class="row"><button class="btn" id="pwBtn" type="button">Continue</button></div>' +
+      '<p class="msg" id="pwMsg" hidden></p></div>';
+    $("pwBtn").addEventListener("click", unlock);
+    $("apw").addEventListener("keydown", e => { if (e.key === "Enter") unlock(); });
+    $("apw").focus();
+    if (errText) say("pwMsg", "err", errText);
+  }
+  async function unlock() {
+    const pw = $("apw").value;
+    if (!pw) return say("pwMsg", "err", "Enter your app password.");
+    $("pwBtn").disabled = true;
+    try { await loadTeam(pw); } finally { if ($("pwBtn")) $("pwBtn").disabled = false; }
+  }
+
+  // ---------- page skeleton: tab nav + one panel at a time
+  function build() {
+    $("content").innerHTML = '<div class="layout"><nav class="nav" id="nav" aria-label="Team sections"></nav><section class="panel" id="panel"></section></div>';
+    $("nav").addEventListener("click", e => {
+      const b = e.target.closest("[data-t]");
+      if (b) { tab = b.dataset.t; render(); }
+    });
+    $("panel").addEventListener("click", onClick);
+    $("panel").addEventListener("keydown", e => {
+      if (e.key === "Enter" && e.target.id === "inv_in") { e.preventDefault(); sendInvite(); }
+    });
+    render();
+  }
+  function render(msg) {
+    const open = st.invites.length;
+    $("nav").innerHTML =
+      '<button type="button" class="nv" data-t="members">Members</button>' +
+      '<button type="button" class="nv" data-t="invites">Invites' + (open ? "<i>" + open + "</i>" : "") + "</button>";
+    $("nav").querySelectorAll(".nv").forEach(b => {
+      const on = b.dataset.t === tab;
+      b.classList.toggle("on", on);
+      if (on) { b.setAttribute("aria-current", "page"); b.scrollIntoView({ block: "nearest", inline: "center" }); } else b.removeAttribute("aria-current");
+    });
+    ({ members: renderMembers, invites: renderInvites }[tab] || renderMembers)();
+    if (msg) say("pmsg", msg[0], msg[1]);
+  }
+
+  // ---------- members
+  function renderMembers() {
+    const me = creds().u;
+    const rows = [
+      '<div class="rule">' + avatar(ownerName, st.owner && st.owner.imgUrl) + '<div class="m"><b>' + esc(ownerName || "Owner") + '</b><small><span class="pill ok">Owner</span></small></div><div class="acts"></div></div>'
+    ].concat(st.members.map(m =>
+      '<div class="rule">' + avatar(m.username, m.imgUrl) + '<div class="m"><b>' + esc(m.username || "Unknown user") + (!isOwner && m.username === me ? " (you)" : "") + "</b>" +
+      '<small><span class="pill">Member</span><code>' + esc(m.discordId) + "</code><span>Joined " + esc(fmtDate(m.joinedAt)) + "</span></small></div>" +
+      '<div class="acts">' + (isOwner ? '<button type="button" class="btn ghost" data-act="transfer" data-id="' + esc(m.discordId) + '" data-name="' + esc(m.username || "this user") + '">Make owner</button><button type="button" class="btn danger" data-act="rm" data-id="' + esc(m.discordId) + '" data-name="' + esc(m.username || "this user") + '">Remove</button>' : "") + "</div></div>"
+    ));
+    $("panel").innerHTML = head("Members", "People who can work on <b>" + esc(app.name) + "</b> together with the owner.") +
+      '<div class="list">' + rows.join("") + "</div>" +
+      (st.members.length ? "" : '<p class="hint">Nobody has joined yet. Send an invite from the Invites tab.</p>') +
+      '<p class="msg" id="pmsg" hidden></p>' +
+      (isOwner ? "" : '<h3 class="sec">Leave this team</h3><p class="lead">You’ll lose access to this app. The owner can invite you again after your invite expires.</p><div class="row" style="margin-top:0"><button type="button" class="btn danger" data-act="leave">Leave team</button></div>') +
+      '<div class="about"><p>Members use the app with <b>their own login</b> and the <b>app password</b>. They get the app password automatically when they accept an invite.</p>' +
+      "<p>Members can manage files and settings. Only the owner can delete or rename the app, change its domain, delete KV or S3 storage, delete or restore backups, and manage the team.</p>" +
+      (isOwner ? "<p>You can hand the app to a member with <b>Make owner</b>. You become a member and the app password stays the same.</p>" : "") + "</div>";
+  }
+
+  // ---------- invites
+  function renderInvites() {
+    const list = st.invites.length
+      ? '<div class="list">' + st.invites.map(i =>
+          '<div class="rule">' + avatar(i.invitee && i.invitee.username, i.invitee && i.invitee.imgUrl) + '<div class="m"><b>' + esc((i.invitee && i.invitee.username) || "Unknown user") + "</b>" +
+          '<small><span class="pill">Pending</span><code>' + esc(i.invitee ? i.invitee.discordId : "") + "</code><span>Sent " + esc(fmtTime(i.createdAt)) + " · " + esc(timeLeft(i.expiresAt)) + "</span></small></div>" +
+          '<div class="acts"></div></div>').join("") + "</div>"
+      : '<div class="none">No open invites.</div>';
+    const form = isOwner
+      ? '<div class="form"><h3>Invite someone</h3><div>' +
+        '<label class="label" for="inv_in">Username</label>' +
+        '<div class="field"><input id="inv_in" type="text" spellcheck="false" autocomplete="off" autocapitalize="none" placeholder="e.g. alex"></div>' +
+        '<p class="hint">An invite lasts 24 hours. You can’t invite the same person again until it expires, even if they decline.</p></div>' +
+        '<div class="row"><button class="btn" type="button" id="invBtn" data-act="send">Send invite</button></div></div>'
+      : '<p class="hint">Only the owner can send invites.</p>';
+    $("panel").innerHTML = head("Invites", "Invites that are waiting for an answer.") + list + '<p class="msg" id="pmsg" hidden></p>' + form;
+  }
+
+  // ---------- actions
+  async function onClick(e) {
+    const b = e.target.closest("[data-act]");
+    if (!b || b.disabled) return;
+    const act = b.dataset.act;
+    if (act === "send") return sendInvite();
+    if (act === "rm") return removeMember(b.dataset.id, b.dataset.name);
+    if (act === "transfer") return transferOwner(b.dataset.id, b.dataset.name);
+    if (act === "leave") return leaveTeam();
+  }
+
+  async function sendInvite() {
+    const inp = $("inv_in"), btn = $("invBtn");
+    if (!inp) return;
+    const v = inp.value.trim();
+    if (!v) return say("pmsg", "err", "Enter a username.");
+    const body = { invitee: v };
+    btn.disabled = true;
+    say("pmsg", "", "");
+    try {
+      const { res, data: d } = await appPost("/team/invite", body);
+      if (commonErrors(res, d)) return;
+      if (!res.ok || !d.success) return say("pmsg", "err", d.error || "Couldn’t send the invite.");
+      st.invites.unshift(d.invite);
+      render(["ok", "Invite sent to " + ((d.invite.invitee && d.invite.invitee.username) || v) + ". It lasts 24 hours."]);
+    } catch (err) { console.error(err); say("pmsg", "err", netErr); }
+    finally { if ($("invBtn")) $("invBtn").disabled = false; }
+  }
+
+  async function removeMember(id, name) {
+    if (!await askConfirm(name + " will lose access to this app right away.", { title: "Remove member?", ok: "Remove", danger: true })) return;
+    say("pmsg", "", "");
+    try {
+      const { res, data: d } = await appPost("/team/remove", { memberDiscordId: id });
+      if (commonErrors(res, d)) return;
+      if (!res.ok || !d.success) return say("pmsg", "err", d.error || "Couldn’t remove that member.");
+      st.members = st.members.filter(m => m.discordId !== id);
+      render(["ok", name + " was removed from the team."]);
+    } catch (err) { console.error(err); say("pmsg", "err", netErr); }
+  }
+
+  async function transferOwner(id, name) {
+    if (!await askConfirm(name + " will become the owner of " + app.name + " and you will become a member. The app password stays the same. Only the new owner can give it back.", { title: "Transfer ownership?", ok: "Transfer", danger: true })) return;
+    say("pmsg", "", "");
+    try {
+      const { res, data: d } = await appPost("/team/transfer", { newOwnerDiscordId: id });
+      if (commonErrors(res, d)) return;
+      if (!res.ok || !d.success) return say("pmsg", "err", d.error || "Couldn’t transfer the app.");
+      const newName = (d.newOwner && d.newOwner.username) || name;
+      isOwner = false; ownerName = newName; app.role = "member";
+      renderHeader();
+      await loadTeam(appPassword());
+      tab = "members";
+      render(["ok", "Ownership moved to " + newName + ". You’re now a member."]);
+    } catch (err) { console.error(err); say("pmsg", "err", netErr); }
+  }
+
+  async function leaveTeam() {
+    if (!await askConfirm("You’ll lose access to " + app.name + ".", { title: "Leave this team?", ok: "Leave", danger: true })) return;
+    say("pmsg", "", "");
+    try {
+      const { res, data: d } = await post("/team/leave", { appId: APP_ID });
+      if (res.status === 401) { location.replace("signup.html"); return; }
+      if (!res.ok || !d.success) return say("pmsg", "err", d.error || "Couldn’t leave the team.");
+      forgetAppPw();
+      location.replace("dashboard.html");
+    } catch (err) { console.error(err); say("pmsg", "err", netErr); }
+  }
+
+  // ---------- loading
+  function message(title, text, btn, href) {
+    $("content").innerHTML = '<div class="empty"><h2>' + esc(title) + "</h2><p>" + esc(text) + "</p>" +
+      (btn ? '<a class="btn" href="' + esc(href) + '">' + esc(btn) + "</a>" : "") + "</div>";
+  }
+  async function loadTeam(pw) {
+    const { res, data: d } = await post("/team/members", { appId: APP_ID, appPassword: pw });
+    if (res.status === 401 && /app password/i.test(d.error || "")) { forgetAppPw(); return showPasswordGate("That app password is wrong. Enter the right one."); }
+    if (res.status === 401) { location.replace("signup.html"); return; }
+    if (!res.ok || !d.success) {
+      if ($("pwMsg")) return say("pwMsg", "err", d.error || "Couldn’t load the team.");
+      return message("Couldn’t load the team", d.error || "Try again.", "Try again", location.pathname + location.search);
+    }
+    saveAppPw(pw);
+    st = { members: d.members || [], invites: d.invites || [], owner: d.owner || null };
+    build();
+  }
+  async function load() {
+    const { u, p } = creds();
+    if (!u || !p || !APP_ID) return;
+    $("content").innerHTML = '<div class="layout"><div class="sk"></div></div>';
+    try {
+      const { res, data: d } = await post("/apps/list", {});
+      if (res.status === 401) return message("Please sign up again", "We couldn’t verify your account on this device.", "Sign up", "signup.html");
+      if (!res.ok || !d.success) throw new Error(d.error || "Request failed");
+      app = (d.apps || []).find(a => a.id === APP_ID);
+      if (app) { isOwner = app.role !== "member"; ownerName = isOwner ? u : (app.owner || "Owner"); }
+      if (!app) return message("App not found", "This app doesn’t exist, or you’re not its owner or a team member.", "Back to dashboard", "dashboard.html");
+      renderHeader();
+      const pw = storedAppPw();
+      if (pw) await loadTeam(pw); else showPasswordGate();
+    } catch (err) {
+      console.error(err);
+      message("Couldn’t load your app", "Check your connection and try again.", "Try again", location.pathname + location.search);
+    }
+  }
+  load();
+</script>
+</body>
+</html>
