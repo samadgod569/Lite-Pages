@@ -1,0 +1,7 @@
+{
+  "name": "lite-pages",
+  "private": true,
+  "dependencies": {
+    "@cloudflare/puppeteer": "latest"
+  }
+}
