@@ -1,6 +1,9 @@
 name = "lite-pages"
 main = "worker.js"
 compatibility_date = "2026-10-25"
+compatibility_flags = ["nodejs_compat"]
+
+browser = { binding = "BROWSER" }
 
 [[kv_namespaces]]
 binding = "KV"
