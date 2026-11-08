@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Plan – Fast Site</title>
+<meta name="description" content="Upgrade or downgrade your Fast Site app's plan.">
+<link rel="icon" type="image/svg+xml" href="images/logo.svg">
+<script>
+  (function(){var u,p;try{u=localStorage.getItem("lp-username");p=localStorage.getItem("lp-password")}catch(e){}
+  if(!u||!p)location.replace("signup.html");
+  else if(!new URLSearchParams(location.search).get("id"))location.replace("dashboard.html")})();
+</script>
+<script>
+  (function(){var t;try{t=localStorage.getItem("lp-theme")}catch(e){}
+  if(!t)t=matchMedia("(prefers-color-scheme:dark)").matches?"dark":"light";
+  document.documentElement.dataset.theme=t})();
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{color-scheme:light;--bg:#fff;--surface:#fff;--soft:#f6f6f7;--line:#e4e4e7;--text:#09090b;--muted:#5b5b66;--accent:#0e7490;--accent-ink:#fff;--danger:#b91c1c;--ok:#16a34a}
+  [data-theme=dark]{color-scheme:dark;--bg:#000;--surface:#0a0a0a;--soft:#111113;--line:#262629;--text:#fafafa;--muted:#a1a1aa;--accent:#5be0f0;--accent-ink:#001418;--danger:#f87171;--ok:#4ade80}
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{margin:0;min-height:100vh;display:flex;flex-direction:column;background:var(--bg);color:var(--text);font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif;line-height:1.55;overflow-x:hidden}
+  main{flex:1;padding:32px 20px 64px}
+  [hidden]{display:none!important}
+  .wrap{max-width:1040px;margin:0 auto}
+  h1{font-size:26px;letter-spacing:-.02em;line-height:1.2;margin:0 0 4px}
+  .sub{margin:0 0 24px;color:var(--muted);font-size:14.5px}
+  .sub b{color:var(--text)}
+  a:focus-visible,button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+  .panel{min-width:0}
+  .panel h2{margin:0 0 2px;font-size:19px;letter-spacing:-.01em}
+  .lead{margin:0 0 18px;font-size:14px;color:var(--muted)}
+  .lead b{color:var(--text)}
+  h3.sec{margin:26px 0 10px;font-size:15px}
+  .pill{display:inline-block;padding:2px 10px;border-radius:999px;background:var(--soft);border:1px solid var(--line);font-size:12px;font-weight:600;color:var(--muted)}
+  .pill.on{background:color-mix(in srgb,var(--accent) 14%,var(--surface));border-color:var(--accent);color:var(--text)}
+
+  .field{display:flex;align-items:stretch;border:1px solid var(--line);border-radius:8px;background:var(--surface);overflow:hidden;max-width:520px}
+  .field:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 20%,transparent)}
+  .field input{flex:1;min-width:0;padding:9px 12px;border:0;outline:0;background:transparent;color:var(--text);font:500 14.5px Inter,sans-serif}
+  .field input::placeholder{color:var(--muted);opacity:.7}
+
+  .row{display:flex;gap:8px;flex-wrap:wrap;margin-top:16px}
+  .btn{display:inline-flex;align-items:center;justify-content:center;padding:9px 16px;border-radius:8px;font:600 14px Inter,sans-serif;text-decoration:none;cursor:pointer;border:1px solid var(--accent);background:var(--accent);color:var(--accent-ink)}
+  .btn:hover{opacity:.9}
+  .btn:disabled{opacity:.5;cursor:not-allowed}
+  .btn.ghost{background:transparent;color:var(--text);border-color:var(--line)}
+  .btn.ghost:hover{border-color:var(--accent);opacity:1}
+  .btn.danger.solid{background:var(--danger);border-color:var(--danger);color:#fff}
+
+  .msg{margin:14px 0 0;padding:10px 14px;border-radius:8px;font-size:14px;border:1px solid var(--line);background:var(--soft)}
+  .msg.ok{border-color:color-mix(in srgb,var(--ok) 45%,var(--line));color:var(--ok)}
+  .msg.err{border-color:color-mix(in srgb,var(--danger) 45%,var(--line));color:var(--danger)}
+  .msg.info{color:var(--muted)}
+
+  .stats{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:12px}
+  .stat{border:1px solid var(--line);background:var(--soft);border-radius:10px;padding:12px 14px}
+  .stat b{display:block;font-size:22px;letter-spacing:-.02em;line-height:1.2}
+  .stat span{font-size:12.5px;font-weight:500;color:var(--muted)}
+
+  .plans{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:12px}
+  .pc{display:flex;flex-direction:column;gap:12px;padding:16px;border:1px solid var(--line);border-radius:12px;background:var(--surface)}
+  .pc.cur{border-color:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 18%,transparent)}
+  .pc h3{margin:0;font-size:15px;display:flex;align-items:center;justify-content:space-between;gap:8px}
+  .price{display:flex;align-items:baseline;gap:6px;margin:0}
+  .price b{font-size:26px;letter-spacing:-.02em;line-height:1.1}
+  .price span{font-size:13px;color:var(--muted)}
+  .pc ul{list-style:none;margin:0;padding:0;display:grid;align-content:start;gap:7px;font-size:13.5px;color:var(--muted);flex:1}
+  .pc li{display:flex;gap:8px;align-items:flex-start}
+  .pc li::before{content:"✓";color:var(--accent);font-weight:700}
+  .pc .btn{width:100%}
+  .pc .note{margin:0;font-size:12.5px;color:var(--muted);text-align:center}
+  .pc .pill{display:block;text-align:center;padding:9px 16px;font-size:13.5px}
+
+  .sk{border:1px solid var(--line);border-radius:12px;height:240px;background:linear-gradient(100deg,var(--soft) 30%,var(--line) 50%,var(--soft) 70%);background-size:300% 100%;animation:shine 1.4s linear infinite}
+  @keyframes shine{to{background-position:-300% 0}}
+  @keyframes ddIn{from{opacity:0;transform:translateY(-4px)}}
+  @keyframes ddFade{from{opacity:0}}
+  .empty{border:1px dashed var(--line);border-radius:14px;background:var(--soft);padding:48px 24px;text-align:center}
+  .empty h2{margin:0 0 6px;font-size:21px}
+  .empty p{margin:0 0 20px;color:var(--muted)}
+  .gate{max-width:480px}
+
+  .mdl{position:fixed;inset:0;z-index:1100;display:grid;place-items:center;padding:20px;background:color-mix(in srgb,#000 55%,transparent);animation:ddFade .12s ease-out}
+  .mdl-box{width:100%;max-width:400px;padding:20px;background:var(--surface);color:var(--text);border:1px solid var(--line);border-radius:14px;box-shadow:0 20px 50px rgba(0,0,0,.35);animation:ddIn .14s ease-out}
+  .mdl-box h3{margin:0 0 6px;font-size:17px}
+  .mdl-box p{margin:0;color:var(--muted);font-size:14px;white-space:pre-line}
+  .mdl-box .row{justify-content:flex-end;margin-top:20px}
+
+  @media(max-width:820px){main{padding:24px 16px 48px}}
+  @media(max-width:560px){h1{font-size:23px}.field{max-width:none}}
+  @media(prefers-reduced-motion:reduce){*,::after{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+
+<div id="panelEssentials"></div>
+
+<main>
+  <div class="wrap">
+    <header>
+      <h1>Plan</h1>
+      <p class="sub" id="sub">&nbsp;</p>
+    </header>
+    <div id="content" aria-live="polite"></div>
+  </div>
+</main>
+
+<div id="footer"></div>
+
+<script>
+  const API_BASE = "https://lite-pages.thecodemonai.workers.dev/api";
+
+  const APP_ID = new URLSearchParams(location.search).get("id") || "";
+  let app = null, credits = 0, freeUsed = 0, maxFree = 1, items = [], busy = false;
+
+  const $ = id => document.getElementById(id);
+  const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const num = n => Number(n).toLocaleString("en-US");
+  const short = n => n >= 1e9 ? (n / 1e9) + "B" : n >= 1e6 ? (n / 1e6) + "M" : n >= 1e3 ? (n / 1e3) + "K" : String(n);
+  const stat = (v, l) => '<div class="stat"><b>' + v + "</b><span>" + esc(l) + "</span></div>";
+
+  // confirm dialog: await askConfirm("text", { title, ok, danger })
+  window.askConfirm = function (text, o) {
+    o = o || {};
+    return new Promise(res => {
+      const prev = document.activeElement;
+      const m = document.createElement("div"); m.className = "mdl";
+      m.innerHTML = '<div class="mdl-box" role="alertdialog" aria-modal="true" aria-labelledby="mdlT"><h3 id="mdlT">' + esc(o.title || "Are you sure?") + "</h3><p>" + esc(text) + "</p>" +
+        '<div class="row"><button class="btn ghost" type="button" data-r="0">Cancel</button><button class="btn' + (o.danger ? " danger solid" : "") + '" type="button" data-r="1">' + esc(o.ok || "Confirm") + "</button></div></div>";
+      const done = v => { document.removeEventListener("keydown", key, true); m.remove(); if (prev && prev.focus && prev.isConnected) prev.focus(); res(v); };
+      const key = e => {
+        if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); done(false); }
+        else if (e.key === "Tab") { const b = m.querySelectorAll("button"); e.preventDefault(); (document.activeElement === b[0] ? b[1] : b[0]).focus(); }
+      };
+      m.addEventListener("click", e => { const b = e.target.closest("button"); if (b) done(b.dataset.r === "1"); else if (e.target === m) done(false); });
+      document.addEventListener("keydown", key, true);
+      document.body.appendChild(m);
+      m.querySelector('[data-r="1"]').focus();
+    });
+  };
+
+  function inject(id, url) {
+    fetch(url).then(r => r.ok ? r.text() : "").then(html => {
+      const box = $(id);
+      box.innerHTML = html;
+      box.querySelectorAll("script").forEach(old => {
+        const s = document.createElement("script");
+        [...old.attributes].forEach(a => s.setAttribute(a.name, a.value));
+        s.textContent = old.textContent;
+        old.replaceWith(s);
+      });
+    }).catch(e => console.error("Could not load " + url, e));
+  }
+  inject("panelEssentials", "../assets/panel-essentials.html");
+  inject("footer", "../assets/footer-panel.html");
+
+  // ---------- credentials / api
+  function creds() {
+    try { return { u: localStorage.getItem("lp-username"), p: localStorage.getItem("lp-password") }; }
+    catch (e) { return { u: null, p: null }; }
+  }
+  const storedAppPw = () => { try { return localStorage.getItem("lp-app-password:" + APP_ID) || ""; } catch (e) { return ""; } };
+  const saveAppPw = pw => { try { localStorage.setItem("lp-app-password:" + APP_ID, pw); } catch (e) {} };
+  const forgetAppPw = () => { try { localStorage.removeItem("lp-app-password:" + APP_ID); } catch (e) {} };
+  const appPassword = () => storedAppPw() || ($("apw") ? $("apw").value : "");
+
+  async function post(path, extra) {
+    const { u, p } = creds();
+    const res = await fetch(API_BASE + path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(Object.assign({ username: u, password: p }, extra))
+    });
+    let data = {};
+    try { data = await res.json(); } catch (e) {}
+    return { res, data };
+  }
+  const appPost = (path, extra) => post(path, Object.assign({ appId: APP_ID, appPassword: appPassword() }, extra));
+
+  function say(id, kind, text) {
+    const el = $(id);
+    if (!el) return;
+    if (!text) { el.hidden = true; el.textContent = ""; return; }
+    el.className = "msg " + kind;
+    el.textContent = text;
+    el.hidden = false;
+  }
+  function commonErrors(res, data) {
+    if (res.status === 401 && /app password/i.test(data.error || "")) {
+      forgetAppPw();
+      showPasswordGate("That app password is wrong. Enter the right one.");
+      return true;
+    }
+    if (res.status === 401) { location.replace("signup.html"); return true; }
+    return false;
+  }
+  const netErr = "Network error. Check your connection and try again.";
+
+  function message(title, text, btn, href) {
+    $("content").innerHTML = '<div class="empty"><h2>' + esc(title) + "</h2><p>" + esc(text) + "</p>" +
+      (btn ? '<a class="btn" href="' + esc(href) + '">' + esc(btn) + "</a>" : "") + "</div>";
+  }
+
+  // ---------- header + password gate
+  function renderHeader() {
+    document.title = "Plan · " + app.name + " – Fast Site";
+    $("sub").innerHTML = "App <b>" + esc(app.name) + '</b> · <span class="pill on">' + esc(app.plan || "Free") + "</span>";
+  }
+  function showPasswordGate(errText) {
+    $("content").innerHTML =
+      '<div class="gate"><h2 style="margin:0 0 2px;font-size:19px">App password</h2>' +
+      '<p class="lead">Changing the plan needs your app password. It was shown once when you created the app.</p>' +
+      '<div class="field"><input id="apw" type="password" autocomplete="current-password" placeholder="App password"></div>' +
+      '<div class="row"><button class="btn" id="pwBtn" type="button">Continue</button></div>' +
+      '<p class="msg" id="pwMsg" hidden></p></div>';
+    $("pwBtn").addEventListener("click", unlock);
+    $("apw").addEventListener("keydown", e => { if (e.key === "Enter") unlock(); });
+    $("apw").focus();
+    if (errText) say("pwMsg", "err", errText);
+  }
+  async function unlock() {
+    const pw = $("apw").value;
+    if (!pw) return say("pwMsg", "err", "Enter your app password.");
+    $("pwBtn").disabled = true;
+    try {
+      // any app route will do to check the password
+      const { res, data: d } = await post("/team/members", { appId: APP_ID, appPassword: pw });
+      if (res.status === 401 && /app password/i.test(d.error || "")) return say("pwMsg", "err", "That app password is wrong. Enter the right one.");
+      if (res.status === 401) { location.replace("signup.html"); return; }
+      if (!res.ok || d.success === false) return say("pwMsg", "err", d.error || "Couldn’t check the password. Try again.");
+      saveAppPw(pw);
+      build();
+    } catch (e) { console.error(e); say("pwMsg", "err", netErr); }
+    finally { if ($("pwBtn")) $("pwBtn").disabled = false; }
+  }
+
+  // ---------- plans
+  const planOf = name => items.find(p => p.name === name) || items[0];
+  const rank = name => Math.max(0, items.findIndex(p => p.name === name));
+
+  function card(p, cur) {
+    const r = rank(p.name), here = r === rank(cur), up = r > rank(cur);
+    const cost = Math.max(0, p.price - planOf(cur).price);
+    let act, note = "";
+    if (here) act = '<span class="pill on">Current plan</span>';
+    else if (up) {
+      const short_ = cost > credits;
+      act = '<button type="button" class="btn" data-act="up" data-plan="' + esc(p.name) + '"' + (short_ ? " disabled" : "") + ">Upgrade</button>";
+      note = short_ ? "You need " + num(cost - credits) + " more credits" : "Costs " + num(cost) + " credits";
+    } else {
+      const blocked = p.name === "Free" && freeUsed >= maxFree;
+      act = '<button type="button" class="btn ghost" data-act="down" data-plan="' + esc(p.name) + '"' + (blocked ? " disabled" : "") + ">Downgrade</button>";
+      if (blocked) note = "You already have " + num(maxFree) + " free app";
+    }
+    const feats = [p.backups ? num(p.backups) + " backups" : "No backups"];
+    if (p.dailyRequests) feats.push(short(p.dailyRequests) + " requests / day");
+    return '<div class="pc' + (here ? " cur" : "") + '"><h3>' + esc(p.name) + "</h3>" +
+      '<p class="price"><b>' + (p.price ? num(p.price) : "Free") + "</b>" + (p.price ? "<span>credits</span>" : "") + "</p>" +
+      "<ul>" + feats.map(f => "<li>" + esc(f) + "</li>").join("") + "</ul>" + act + (note ? '<p class="note">' + esc(note) + "</p>" : "") + "</div>";
+  }
+
+  function build() {
+    $("content").innerHTML = '<section class="panel" id="panel"></section>';
+    $("panel").addEventListener("click", e => {
+      const b = e.target.closest("[data-act]");
+      if (b && !busy) change(b.dataset.act, b.dataset.plan);
+    });
+    render();
+  }
+  function render(msg) {
+    renderHeader();
+    const cur = app.plan || "Free", p = planOf(cur);
+    $("panel").innerHTML =
+      "<h2>Your plan</h2>" +
+      '<p class="lead">Upgrading takes effect right away and costs the difference in credits. Only the owner of an app can change its plan.</p>' +
+      '<div class="stats">' + stat(esc(cur), "Current plan") + stat(num(credits), "Your credits") +
+      stat(p.backups ? num(p.backups) : "None", "Backups allowed") +
+      (p.dailyRequests ? stat(num(p.dailyRequests), "Requests per day") : "") + "</div>" +
+      '<h3 class="sec">Choose a plan</h3><div class="plans">' + items.map(x => card(x, cur)).join("") + "</div>" +
+      '<p class="msg" id="pmsg" hidden></p><p class="msg info" id="wmsg" hidden></p>';
+    if (msg) say("pmsg", msg[0], msg[1]);
+    if (msg && msg[2]) say("wmsg", "info", msg[2]);
+  }
+
+  async function change(dir, plan) {
+    const cur = app.plan || "Free", p = planOf(plan), cost = Math.max(0, p.price - planOf(cur).price);
+    const text = dir === "up"
+      ? "Upgrade " + app.name + " to " + plan + " for " + num(cost) + " credits? It changes right away."
+      : "Downgrade " + app.name + " to " + plan + "? Nothing is deleted, but the " + plan + " limits apply (" + (p.backups ? num(p.backups) + " backups" : "no backups") + "). Credits you already spent on the higher plan may not be refunded.";
+    if (!await askConfirm(text, { title: dir === "up" ? "Upgrade plan?" : "Downgrade plan?", ok: dir === "up" ? "Upgrade" : "Downgrade", danger: dir === "down" })) return;
+    busy = true;
+    $("panel").querySelectorAll("button").forEach(b => b.disabled = true);
+    say("pmsg", "info", "Changing your plan…");
+    try {
+      const { res, data: d } = await appPost("/apps/plan/" + (dir === "up" ? "upgrade" : "downgrade"), { plan });
+      if (commonErrors(res, d)) return;
+      if (!res.ok || !d.success) { render(["err", d.error || "Couldn’t change the plan."]); return; }
+      app.plan = d.to; credits = d.credits;
+      if (d.to === "Free") freeUsed++; else if (d.from === "Free") freeUsed = Math.max(0, freeUsed - 1);
+      render(["ok", "Your app is now on the " + d.to + " plan." + (d.charged ? " " + num(d.charged) + " credits charged." : "") + (d.refunded ? " " + num(d.refunded) + " credits refunded." : ""), (d.warnings || []).join(" ")]);
+    } catch (e) { console.error(e); render(["err", netErr]); }
+    finally { busy = false; }
+  }
+
+  async function load() {
+    const { u, p } = creds();
+    if (!u || !p || !APP_ID) return;
+    $("content").innerHTML = '<div class="sk"></div>';
+    try {
+      const { res, data: d } = await post("/apps/list", {});
+      if (res.status === 401) return message("Please sign up again", "We couldn’t verify your account on this device.", "Sign up", "signup.html");
+      if (!res.ok || !d.success) throw new Error(d.error || "Request failed");
+      app = (d.apps || []).find(a => a.id === APP_ID);
+      if (!app) return message("App not found", "This app doesn’t exist or isn’t yours.", "Back to dashboard", "dashboard.html");
+      document.title = "Plan · " + app.name + " – Fast Site";
+      $("sub").innerHTML = "App <b>" + esc(app.name) + "</b>";
+      if (app.role === "member") return message("Only the owner can change the plan", "Ask the owner of " + app.name + " to upgrade or downgrade it.", "Back to dashboard", "dashboard.html");
+      credits = Number(d.credits) || 0; freeUsed = Number(d.freeUsed) || 0; maxFree = Number(d.maxFree) || 1;
+      items = [{ name: "Free", price: 0, backups: 0, dailyRequests: d.freeDailyRequests || null }]
+        .concat((d.plans || []).slice().sort((a, b) => a.price - b.price));
+      renderHeader();
+      if (storedAppPw()) build(); else showPasswordGate();
+    } catch (err) {
+      console.error(err);
+      message("Couldn’t load your app", "Check your connection and try again.", "Try again", location.pathname + location.search);
+    }
+  }
+  load();
+</script>
+</body>
+</html>
